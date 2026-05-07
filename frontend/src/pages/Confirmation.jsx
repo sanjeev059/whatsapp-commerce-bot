@@ -17,9 +17,9 @@ export default function Confirmation() {
 
   const orderId = useMemo(
     () =>
-      "LC" +
-      Math.floor(100000 + Math.random() * 900000).toString(),
-    []
+      order?.short_id ||
+      "LC" + Math.floor(100000 + Math.random() * 900000).toString(),
+    [order]
   );
 
   const reopenWhatsApp = () => {

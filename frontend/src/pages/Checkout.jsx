@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 import { CATEGORY_RULES } from "@/config";
 import { buildOrderMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import { api } from "@/lib/apiClient";
+import { apiErrorMessage } from "@/lib/apiError";
 import { MessageCircle, Phone, MapPin, User, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,10 +70,41 @@ export default function Checkout() {
     return true;
   };
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     if (!validate()) return;
     setSubmitting(true);
 
+    // 1. Persist order to backend (without auth — public endpoint)
+    const orderItems = items.map((i) => ({
+      product_id: i.id,
+      name: i.name,
+      price: i.price,
+      qty: i.qty,
+      category_id: i.category_id,
+    }));
+
+    let savedOrder = null;
+    try {
+      // Strip Authorization header for this public call (admin token shouldn't leak)
+      const { data } = await api.post(
+        "/orders",
+        {
+          customer_name: form.name,
+          customer_phone: form.phone,
+          delivery_address: form.address,
+          notes: form.notes,
+          items: orderItems,
+        },
+        { headers: { Authorization: "" } }
+      );
+      savedOrder = data;
+    } catch (e) {
+      setSubmitting(false);
+      toast.error(apiErrorMessage(e, "Could not place order"));
+      return;
+    }
+
+    // 2. Build WhatsApp deep link
     const message = buildOrderMessage({
       items: items.map((i) => ({
         category_id: i.category_id,
@@ -94,10 +127,11 @@ export default function Checkout() {
         count: totals.count,
         customer: form,
         items: items.map((i) => ({ ...i })),
+        short_id: savedOrder?.short_id,
       })
     );
 
-    // Open WhatsApp in new tab — note: must not be blocked since this runs from a click event
+    // Open WhatsApp in new tab — must run inside click handler
     window.open(link, "_blank", "noopener,noreferrer");
 
     // Clear cart and navigate to confirmation

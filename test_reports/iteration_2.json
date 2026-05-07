@@ -1,0 +1,38 @@
+{
+  "summary": "End-to-end backend + frontend testing of admin dashboard layer added on top of existing storefront. 22/22 pytest cases pass. All admin Playwright flows pass: login (success + wrong-password error + JWT-on-localStorage), unauthenticated /admin redirect, /admin dashboard with stat cards + pipeline pills, /admin/orders list/filter/status update + detail modal + wa.me reshare, /admin/products CRUD with category+subgroup picker (incl. validation), 401 axios interceptor logs out, sign-out clears token. Customer storefront flow still works end-to-end and the placed order is now persisted to MongoDB (verified short_id starts with LC and the record is visible via /api/admin/orders).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin.py",
+    "/app/backend/tests/test_catalog.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(carryover from iter-1, low priority) Checkout.jsx still calls navigate('/cart') inside render when items.length===0; wrap in useEffect to silence the React 'setState during render' warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py uses deprecated FastAPI lifecycle hooks @app.on_event('startup'/'shutdown'). Migrate to lifespan context manager before FastAPI removes them.",
+    "server.py CORS middleware is added AFTER include_router; it still works but conventionally middleware should be installed before routers — leave as-is unless adding more middleware.",
+    "server.py login(): when an admin successfully logs in we delete login_attempts for that {ip}:{email} — good; however brute-force for an unknown email leaves a row with fails=0 once it locks. That's harmless but the lockout is reset to 0 so the same identifier can immediately accumulate another 5 fails after the 15-min window. Acceptable for MVP.",
+    "AdminAuthContext.jsx interceptor is registered inside a useEffect that runs after first /auth/me; if /auth/me itself returns 401 on first mount, the interceptor isn't attached yet but the catch block manually clears the token, so behavior is still correct. Worth a comment to make the order-of-operations explicit.",
+    "AdminProducts edit modal can grow taller than viewport on small desktop heights — submit button can be off-screen (we hit this in tests). Add max-h + overflow-y-auto on the modal panel so submit stays reachable.",
+    "Frontend api.defaults.headers.common.Authorization is mutated globally; Checkout.jsx correctly resets via per-request `headers: { Authorization: '' }`. Good defensive pattern, keep it documented."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin.py (new — 22 tests, all green)"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100%"},
+  "test_credentials": "admin@store.com / admin123 (seeded). Brute force test used unique random emails so admin is not locked.",
+  "seed_data_creation": "Created via test runs: TEST_UI_Customer order (placed), TEST_Cust/TEST_LiqOK/TEST_StatusUpd orders, plus several TEST_UI_Product_X products that were deleted at the end. None remain except the orders (deliberately, to verify persistence).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Seed catalog has 4 categories with ids: liquor, cigarettes, snacks, food (NOT 'groceries'). Liquor enforces ₹1000 minimum server-side. JWT stored in localStorage 'lc_admin_token'. Admin endpoints all under /api/admin/*. Brute-force lock is per {ip}:{email} for 15 min after 5 fails; re-login from admin clears its row. AdminProducts modal has a known scroll issue on shorter desktops — use scroll_into_view_if_needed on form-submit when automating. Customer Checkout strips Authorization header per-request, so admin staying logged in does not leak token to public /api/orders. Confirmation page displays Ref · {short_id} that matches DB record.",
+  "rca of the issue": "N/A — no failing tests."
+}

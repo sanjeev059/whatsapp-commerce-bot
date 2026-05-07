@@ -13,10 +13,12 @@ from typing import List, Optional, Dict, Any
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from xml.sax.saxutils import escape as xml_escape
 
 from seed_data import SEED_CATEGORIES, SEED_SUBGROUPS, expanded_seed_products
 
@@ -206,6 +208,364 @@ class OrderStatusUpdate(BaseModel):
 
 
 ALLOWED_STATUSES = {"placed", "preparing", "out_for_delivery", "delivered", "cancelled"}
+
+
+# ============== WhatsApp Bot Conversation State Machine ==============
+def _fmt_inr(p) -> str:
+    p = float(p)
+    return str(int(p)) if p.is_integer() else f"{p:.2f}"
+
+
+async def _get_conv(sender: str) -> Dict[str, Any]:
+    conv = await db.conversations.find_one({"sender": sender}, {"_id": 0})
+    if not conv:
+        conv = {
+            "sender": sender,
+            "state": "start",
+            "selected_category_id": None,
+            "selected_subgroup_id": None,
+            "cart": [],
+            "draft_address": None,
+            "draft_name": None,
+            "updated_at": now_iso(),
+        }
+        await db.conversations.insert_one(dict(conv))
+    return conv
+
+
+async def _save_conv(conv: Dict[str, Any]) -> None:
+    conv["updated_at"] = now_iso()
+    payload = {k: v for k, v in conv.items() if k != "_id"}
+    await db.conversations.update_one(
+        {"sender": conv["sender"]}, {"$set": payload}, upsert=True
+    )
+
+
+def _help_text() -> str:
+    return (
+        "*Commands:*\n"
+        "• *menu* — show categories\n"
+        "• *cart* — view cart\n"
+        "• *checkout* — place order\n"
+        "• *clear* — empty cart\n"
+        "• *help* — this help"
+    )
+
+
+async def _build_main_menu(sender: str) -> str:
+    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
+    if not cats:
+        return "Welcome! Catalog is empty right now. Try again in a bit."
+    lines = ["👋 *Welcome to Demo Store!*", "", "What would you like to order?"]
+    for i, c in enumerate(cats, 1):
+        lines.append(f"{i}. {c.get('icon', '')} {c['name']}".strip())
+    sf = os.environ.get("STOREFRONT_URL")
+    if sf:
+        lines += ["", "💡 _For the full visual menu:_", sf]
+    lines += ["", "_Reply with a number._"]
+    return "\n".join(lines)
+
+
+async def _build_subgroup_menu(category_id: str) -> str:
+    cat = await db.categories.find_one({"id": category_id}, {"_id": 0})
+    subs = (
+        await db.subgroups.find({"category_id": category_id}, {"_id": 0})
+        .sort("sort_order", 1)
+        .to_list(50)
+    )
+    if not cat or not subs:
+        return "Category not found. Type *menu* to start over."
+    lines = [f"*{cat.get('icon','')} {cat['name']}*".strip(), ""]
+    for i, s in enumerate(subs, 1):
+        lines.append(f"{i}. {s['name']}")
+    if cat["id"] == "cigarettes":
+        lines += ["", "⚠️ _Full Pack Only_"]
+    if cat["id"] == "liquor":
+        lines += ["", f"_Liquor minimum order ₹{cat.get('min_order', 1000)}_"]
+    lines += ["", "_Reply with a number, or *menu* to go back._"]
+    return "\n".join(lines)
+
+
+async def _build_product_list(subgroup_id: str) -> str:
+    sub = await db.subgroups.find_one({"id": subgroup_id}, {"_id": 0})
+    products = (
+        await db.products.find(
+            {"subgroup_id": subgroup_id, "in_stock": True}, {"_id": 0}
+        )
+        .sort("sort_order", 1)
+        .to_list(200)
+    )
+    if not sub:
+        return "Subgroup not found. Type *menu* to start over."
+    if not products:
+        return f"No products in {sub['name']} right now.\nType *menu* to go back."
+    lines = [f"*{sub['name']}*", ""]
+    for i, p in enumerate(products, 1):
+        line = f"{i}. {p['name']} — ₹{_fmt_inr(p['price'])}"
+        if p.get("unit"):
+            line += f" _({p['unit']})_"
+        lines.append(line)
+    lines += [
+        "",
+        "_Reply with the product number to add to cart._",
+        "_Type *menu* to go back, *cart* to view cart._",
+    ]
+    return "\n".join(lines)
+
+
+def _cart_summary(cart: List[Dict[str, Any]]) -> str:
+    if not cart:
+        return "Your cart is empty.\n\nType *menu* to start shopping."
+    lines = ["🛒 *Your Cart*", ""]
+    total = 0.0
+    for it in cart:
+        line_total = it["price"] * it["qty"]
+        total += line_total
+        lines.append(f"• {it['name']} x{it['qty']} — ₹{_fmt_inr(line_total)}")
+    lines += [
+        "",
+        f"*Total: ₹{_fmt_inr(total)}*",
+        "",
+        "Type *checkout* to confirm or *menu* to add more.",
+    ]
+    return "\n".join(lines)
+
+
+async def whatsapp_handle(sender: str, body_raw: str) -> str:
+    """Drive a per-customer state machine over WhatsApp.
+
+    `sender` is what Twilio passes (e.g. 'whatsapp:+919876543210').
+    """
+    body = (body_raw or "").strip()
+    body_lower = body.lower()
+    conv = await _get_conv(sender)
+
+    # Global commands ------------------------------------------------------
+    if body_lower in {"hi", "hello", "hey", "menu", "start", "/start", "main"}:
+        conv["state"] = "category"
+        conv["selected_category_id"] = None
+        conv["selected_subgroup_id"] = None
+        await _save_conv(conv)
+        return await _build_main_menu(sender)
+
+    if body_lower in {"help", "?"}:
+        return _help_text()
+
+    if body_lower in {"cart", "view cart"}:
+        return _cart_summary(conv.get("cart", []))
+
+    if body_lower in {"clear", "clear cart", "empty", "empty cart"}:
+        conv["cart"] = []
+        conv["state"] = "start"
+        await _save_conv(conv)
+        return "Cart cleared. Type *menu* to start over."
+
+    # Begin checkout: collect address ------------------------------------
+    if body_lower in {"checkout", "confirm", "place order"} and conv.get("cart"):
+        cart_items = conv["cart"]
+        liquor_total = sum(
+            i["price"] * i["qty"]
+            for i in cart_items
+            if i.get("category_id") == "liquor"
+        )
+        if liquor_total > 0 and liquor_total < 1000:
+            short = 1000 - liquor_total
+            return (
+                f"⚠️ Liquor minimum order is ₹1000.\n"
+                f"Add ₹{_fmt_inr(short)} more to checkout.\n\n"
+                f"Type *menu* to add more."
+            )
+        conv["state"] = "awaiting_address"
+        await _save_conv(conv)
+        return "📍 Please share your *delivery address* (flat, building, area)."
+
+    state = conv.get("state", "start")
+
+    # State: collecting address ------------------------------------------
+    if state == "awaiting_address":
+        if len(body) < 8:
+            return "That looks too short. Please share a complete address."
+        conv["draft_address"] = body
+        conv["state"] = "awaiting_name"
+        await _save_conv(conv)
+        return "👤 Got it! What's your *name*?"
+
+    # State: collecting name → place order -------------------------------
+    if state == "awaiting_name":
+        if len(body) < 2:
+            return "Please share your name (at least 2 characters)."
+        conv["draft_name"] = body
+        cart_items = conv.get("cart", [])
+        if not cart_items:
+            conv["state"] = "start"
+            await _save_conv(conv)
+            return "Your cart is empty. Type *menu* to start."
+        # Place order
+        total = round(sum(i["price"] * i["qty"] for i in cart_items), 2)
+        new_id = str(uuid.uuid4())
+        short_id = "LC" + new_id[:6].upper()
+        # Extract clean phone from sender (e.g. 'whatsapp:+919...' -> '+919...')
+        phone = sender.split(":", 1)[-1].strip() if ":" in sender else sender
+        order = {
+            "id": new_id,
+            "short_id": short_id,
+            "customer_name": conv["draft_name"],
+            "customer_phone": phone,
+            "delivery_address": conv["draft_address"] or "",
+            "notes": "Placed via WhatsApp bot",
+            "items": [
+                {
+                    "product_id": i["product_id"],
+                    "name": i["name"],
+                    "price": i["price"],
+                    "qty": i["qty"],
+                    "category_id": i["category_id"],
+                }
+                for i in cart_items
+            ],
+            "total": total,
+            "status": "placed",
+            "created_at": now_iso(),
+        }
+        await db.orders.insert_one(dict(order))
+        # Reset conversation
+        conv["cart"] = []
+        conv["state"] = "start"
+        conv["draft_address"] = None
+        conv["draft_name"] = None
+        conv["selected_category_id"] = None
+        conv["selected_subgroup_id"] = None
+        await _save_conv(conv)
+        return (
+            f"✅ *Order Placed!*\n\n"
+            f"Order ID: *{short_id}*\n"
+            f"Total: *₹{_fmt_inr(total)}*\n\n"
+            f"We'll deliver soon. Type *menu* to shop more."
+        )
+
+    # State: pick category -----------------------------------------------
+    if state in {"start", "category"}:
+        if body.isdigit():
+            idx = int(body) - 1
+            cats = (
+                await db.categories.find({}, {"_id": 0})
+                .sort("sort_order", 1)
+                .to_list(50)
+            )
+            if 0 <= idx < len(cats):
+                cat = cats[idx]
+                conv["selected_category_id"] = cat["id"]
+                # If only one subgroup, jump to products
+                subs = (
+                    await db.subgroups.find(
+                        {"category_id": cat["id"]}, {"_id": 0}
+                    )
+                    .sort("sort_order", 1)
+                    .to_list(50)
+                )
+                if len(subs) == 1:
+                    conv["selected_subgroup_id"] = subs[0]["id"]
+                    conv["state"] = "product"
+                    await _save_conv(conv)
+                    return await _build_product_list(subs[0]["id"])
+                conv["state"] = "subgroup"
+                await _save_conv(conv)
+                return await _build_subgroup_menu(cat["id"])
+            return "Invalid option. Reply with a number from the menu, or type *menu*."
+        return "Type *hi* or *menu* to begin."
+
+    # State: pick subgroup -----------------------------------------------
+    if state == "subgroup":
+        if not body.isdigit():
+            return "Reply with the *number* of the subgroup, or type *menu*."
+        idx = int(body) - 1
+        subs = (
+            await db.subgroups.find(
+                {"category_id": conv["selected_category_id"]}, {"_id": 0}
+            )
+            .sort("sort_order", 1)
+            .to_list(50)
+        )
+        if not (0 <= idx < len(subs)):
+            return "Invalid option. Type *menu* to start over."
+        conv["selected_subgroup_id"] = subs[idx]["id"]
+        conv["state"] = "product"
+        await _save_conv(conv)
+        return await _build_product_list(subs[idx]["id"])
+
+    # State: pick product ------------------------------------------------
+    if state == "product":
+        sub_id = conv.get("selected_subgroup_id")
+        products = (
+            await db.products.find(
+                {"subgroup_id": sub_id, "in_stock": True}, {"_id": 0}
+            )
+            .sort("sort_order", 1)
+            .to_list(200)
+        ) if sub_id else []
+        chosen = None
+        if body.isdigit():
+            idx = int(body) - 1
+            if 0 <= idx < len(products):
+                chosen = products[idx]
+        else:
+            for p in products:
+                if (
+                    p["name"].lower() == body_lower
+                    or body_lower in p["name"].lower()
+                ):
+                    chosen = p
+                    break
+        if not chosen:
+            return "Product not found. Reply with the number, or type *menu*."
+
+        cart = conv.get("cart", [])
+        existing = next((c for c in cart if c["product_id"] == chosen["id"]), None)
+        if existing:
+            existing["qty"] += 1
+        else:
+            cart.append(
+                {
+                    "product_id": chosen["id"],
+                    "name": chosen["name"],
+                    "price": chosen["price"],
+                    "qty": 1,
+                    "category_id": chosen["category_id"],
+                    "subgroup_id": chosen["subgroup_id"],
+                }
+            )
+        conv["cart"] = cart
+        await _save_conv(conv)
+        total = sum(i["price"] * i["qty"] for i in cart)
+        return (
+            f"✅ Added *{chosen['name']}* 🛒\n"
+            f"Cart total: ₹{_fmt_inr(total)}\n\n"
+            f"Reply with another product number to add more, "
+            f"*cart* to view, *checkout* to place order, or *menu* for categories."
+        )
+
+    return "Type *hi* or *menu* to start."
+
+
+@api_router.post("/webhook")
+async def twilio_webhook(request: Request):
+    """Twilio Sandbox WhatsApp webhook. Returns TwiML."""
+    form = await request.form()
+    body = form.get("Body", "")
+    sender = form.get("From", "unknown")
+    logger.info(f"WhatsApp <- {sender}: {body!r}")
+    try:
+        reply = await whatsapp_handle(sender, body)
+    except Exception as e:
+        logger.exception(f"webhook error: {e}")
+        reply = "⚠️ Something went wrong. Please type *menu* to start over."
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f"<Response><Message>{xml_escape(reply)}</Message></Response>"
+    )
+    return Response(content=twiml, media_type="application/xml")
+
+
 
 
 # ============== Public Routes ==============
@@ -484,6 +844,7 @@ async def on_startup():
     await db.products.create_index("id", unique=True)
     await db.orders.create_index("id", unique=True)
     await db.orders.create_index("created_at")
+    await db.conversations.create_index("sender", unique=True)
     await db.login_attempts.create_index("identifier", unique=True)
 
     # Seed catalog

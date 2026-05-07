@@ -1,13 +1,23 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 import { CATEGORY_RULES } from "@/config";
-import { buildOrderMessage, buildWhatsAppLink } from "@/lib/whatsapp";
 import { api } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
-import { MessageCircle, Phone, MapPin, User, StickyNote } from "lucide-react";
+import {
+  MessageCircle,
+  Phone,
+  MapPin,
+  User,
+  StickyNote,
+  CheckCircle2,
+  Banknote,
+  Smartphone,
+  Copy,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const CAT_LABELS = {
@@ -16,6 +26,11 @@ const CAT_LABELS = {
   snacks: "🍟 Snacks",
   food: "🍔 Food",
 };
+
+const PAYMENT_OPTIONS = [
+  { id: "upi", label: "Pay via UPI", icon: Smartphone, sub: "PhonePe / GPay / Paytm" },
+  { id: "cod", label: "Cash on Delivery", icon: Banknote, sub: "Pay when it arrives" },
+];
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -26,7 +41,17 @@ export default function Checkout() {
     address: "",
     notes: "",
   });
+  const [paymentMode, setPaymentMode] = useState("upi");
+  const [hasPaid, setHasPaid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [vendor, setVendor] = useState({ name: "Demo Store", upi_id: "", whatsapp: "" });
+
+  useEffect(() => {
+    api
+      .get("/vendor", { headers: { Authorization: "" } })
+      .then(({ data }) => setVendor(data))
+      .catch(() => {});
+  }, []);
 
   const liquorTotal = totals.byCat?.liquor || 0;
   const liquorBlock =
@@ -67,14 +92,24 @@ export default function Checkout() {
       toast.error("Please enter a complete delivery address");
       return false;
     }
+    if (paymentMode === "upi" && !hasPaid) {
+      toast.error("Tap 'I've Paid' after completing the UPI payment");
+      return false;
+    }
     return true;
   };
+
+  // UPI deep-link string (per Indian UPI spec)
+  const upiAmount = totals.total.toFixed(2);
+  const upiNote = encodeURIComponent(`Order from ${vendor.name}`);
+  const upiPa = vendor.upi_id || "vendor@upi";
+  const upiPn = encodeURIComponent(vendor.name || "Vendor");
+  const upiUri = `upi://pay?pa=${upiPa}&pn=${upiPn}&am=${upiAmount}&cu=INR&tn=${upiNote}`;
 
   const placeOrder = async () => {
     if (!validate()) return;
     setSubmitting(true);
 
-    // 1. Persist order to backend (without auth — public endpoint)
     const orderItems = items.map((i) => ({
       product_id: i.id,
       name: i.name,
@@ -85,7 +120,6 @@ export default function Checkout() {
 
     let savedOrder = null;
     try {
-      // Strip Authorization header for this public call (admin token shouldn't leak)
       const { data } = await api.post(
         "/orders",
         {
@@ -93,6 +127,8 @@ export default function Checkout() {
           customer_phone: form.phone,
           delivery_address: form.address,
           notes: form.notes,
+          payment_mode:
+            paymentMode === "upi" ? "Paid via UPI" : "Cash on Delivery",
           items: orderItems,
         },
         { headers: { Authorization: "" } }
@@ -104,45 +140,33 @@ export default function Checkout() {
       return;
     }
 
-    // 2. Build WhatsApp deep link
-    const message = buildOrderMessage({
-      items: items.map((i) => ({
-        category_id: i.category_id,
-        name: i.name,
-        qty: i.qty,
-        price: i.price,
-      })),
-      customer: form,
-      total: totals.total,
-    });
-    const link = buildWhatsAppLink(message);
-
-    // Persist for confirmation screen
     sessionStorage.setItem(
       "lc_last_order",
       JSON.stringify({
-        message,
-        link,
         total: totals.total,
         count: totals.count,
         customer: form,
         items: items.map((i) => ({ ...i })),
         short_id: savedOrder?.short_id,
+        payment_mode: savedOrder?.payment_mode,
       })
     );
 
-    // Open WhatsApp in new tab — must run inside click handler
-    window.open(link, "_blank", "noopener,noreferrer");
-
-    // Clear cart and navigate to confirmation
     clear();
-    setTimeout(() => {
-      navigate("/confirmation", { replace: true });
-    }, 350);
+    setTimeout(() => navigate("/confirmation", { replace: true }), 200);
+  };
+
+  const copyUpi = async () => {
+    try {
+      await navigator.clipboard.writeText(upiPa);
+      toast.success("UPI ID copied");
+    } catch {
+      toast.error("Copy failed");
+    }
   };
 
   return (
-    <div className="min-h-[100dvh] pb-36" data-testid="checkout-page">
+    <div className="min-h-[100dvh] pb-44" data-testid="checkout-page">
       <Header title="Checkout" subtitle="Confirm your details" />
 
       <div className="px-4 pt-4 space-y-4">
@@ -200,7 +224,7 @@ export default function Checkout() {
           <FieldIcon icon={<Phone className="w-4 h-4" />}>
             <input
               className="input pl-10"
-              placeholder="Phone number (e.g. +91 9XXXXXXXXX)"
+              placeholder="WhatsApp number (e.g. +91 9XXXXXXXXX)"
               type="tel"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -229,20 +253,111 @@ export default function Checkout() {
           </FieldIcon>
         </div>
 
-        <div className="surface p-4 flex items-center gap-3" data-testid="payment-mode">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: "rgba(34,210,122,0.12)", color: "var(--accent)" }}
-          >
-            💵
+        {/* Payment selector */}
+        <div className="surface p-4" data-testid="payment-selector">
+          <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-3">
+            Payment method
           </div>
-          <div className="flex-1">
-            <div className="font-semibold text-sm">Cash on Delivery</div>
-            <div className="text-xs text-[var(--text-muted)]">
-              Pay the vendor when your order arrives.
+          <div className="grid grid-cols-2 gap-2">
+            {PAYMENT_OPTIONS.map((opt) => {
+              const active = paymentMode === opt.id;
+              const Icon = opt.icon;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    setPaymentMode(opt.id);
+                    setHasPaid(false);
+                  }}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    active
+                      ? "border-[var(--accent)]"
+                      : "border-[var(--border-soft)]"
+                  }`}
+                  style={{
+                    background: active
+                      ? "rgba(34,210,122,0.08)"
+                      : "var(--surface-2)",
+                  }}
+                  data-testid={`payment-option-${opt.id}`}
+                >
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center mb-2"
+                    style={{
+                      background: active
+                        ? "rgba(34,210,122,0.18)"
+                        : "var(--surface)",
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="text-sm font-semibold">{opt.label}</div>
+                  <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    {opt.sub}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* UPI panel */}
+          {paymentMode === "upi" && (
+            <div className="mt-4 fade-up" data-testid="upi-panel">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] mb-2">
+                Scan to pay {formatINR(totals.total)}
+              </div>
+              <div className="flex items-start gap-3">
+                <div
+                  className="rounded-xl p-3 shrink-0"
+                  style={{ background: "white" }}
+                  data-testid="upi-qr"
+                >
+                  <QRCodeSVG
+                    value={upiUri}
+                    size={130}
+                    level="M"
+                    includeMargin={false}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-[var(--text-muted)]">
+                    Pay to
+                  </div>
+                  <div className="font-semibold text-sm truncate">
+                    {vendor.name}
+                  </div>
+                  <button
+                    onClick={copyUpi}
+                    className="mt-1 text-xs flex items-center gap-1 text-[var(--accent)] hover:underline"
+                    data-testid="upi-copy-id"
+                  >
+                    <Copy className="w-3 h-3" /> {upiPa || "vendor@upi"}
+                  </button>
+                  <div className="mt-2 text-[11px] text-[var(--text-faint)] leading-relaxed">
+                    Scan with PhonePe / GPay / Paytm or any UPI app and complete
+                    the payment, then tap the button below.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setHasPaid(true);
+                  toast.success("Marked as paid — confirm below to send order");
+                }}
+                disabled={hasPaid}
+                className={`mt-3 w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 ${
+                  hasPaid
+                    ? "bg-[rgba(34,210,122,0.18)] text-[var(--accent)]"
+                    : "btn-ghost"
+                }`}
+                data-testid="upi-mark-paid"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {hasPaid ? "Payment marked — confirm below" : "I've paid"}
+              </button>
             </div>
-          </div>
-          <span className="pill">Default</span>
+          )}
         </div>
       </div>
 
@@ -259,10 +374,12 @@ export default function Checkout() {
             data-testid="place-order-btn"
           >
             <MessageCircle className="w-5 h-5" />
-            {submitting ? "Opening WhatsApp…" : `Place Order via WhatsApp`}
+            {submitting
+              ? "Placing order…"
+              : `Confirm Order · ${formatINR(totals.total)}`}
           </button>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)] text-center mt-2">
-            Order summary opens in WhatsApp · Tap send to confirm
+            You'll get a WhatsApp confirmation · vendor gets notified instantly
           </p>
         </div>
       </div>
@@ -274,7 +391,9 @@ function FieldIcon({ icon, children, multi }) {
   return (
     <div className="relative">
       <div
-        className={`absolute left-3 ${multi ? "top-3.5" : "top-1/2 -translate-y-1/2"} text-[var(--text-faint)]`}
+        className={`absolute left-3 ${
+          multi ? "top-3.5" : "top-1/2 -translate-y-1/2"
+        } text-[var(--text-faint)]`}
       >
         {icon}
       </div>

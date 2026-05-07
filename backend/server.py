@@ -259,13 +259,24 @@ async def _build_main_menu(sender: str) -> str:
     cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
     if not cats:
         return "Welcome! Catalog is empty right now. Try again in a bit."
-    lines = ["👋 *Welcome to Demo Store!*", "", "What would you like to order?"]
+    vendor_name = os.environ.get("VENDOR_NAME", "Demo Store")
+    sf = os.environ.get("STOREFRONT_URL", "").strip()
+    lines = [f"👋 *Welcome to {vendor_name}!*", "", "Hungry or thirsty? You're in the right place 🍻🍔"]
+    if sf:
+        lines += [
+            "",
+            "🌐 *Tap to browse our full menu:*",
+            sf,
+            "",
+            "_(or order right here in chat — see options below)_",
+            "",
+        ]
+    else:
+        lines.append("")
+    lines.append("*Categories:*")
     for i, c in enumerate(cats, 1):
         lines.append(f"{i}. {c.get('icon', '')} {c['name']}".strip())
-    sf = os.environ.get("STOREFRONT_URL")
-    if sf:
-        lines += ["", "💡 _For the full visual menu:_", sf]
-    lines += ["", "_Reply with a number._"]
+    lines += ["", "_Reply with a number to order via chat._"]
     return "\n".join(lines)
 
 
@@ -416,6 +427,7 @@ async def whatsapp_handle(sender: str, body_raw: str) -> str:
             "customer_phone": phone,
             "delivery_address": conv["draft_address"] or "",
             "notes": "Placed via WhatsApp bot",
+            "payment_mode": "Cash on Delivery",
             "items": [
                 {
                     "product_id": i["product_id"],
@@ -431,6 +443,10 @@ async def whatsapp_handle(sender: str, body_raw: str) -> str:
             "created_at": now_iso(),
         }
         await db.orders.insert_one(dict(order))
+        # Notify vendor (customer is the sender — they'll see this reply directly)
+        vendor_to = os.environ.get("VENDOR_WHATSAPP_TO", "").strip()
+        if vendor_to:
+            wa.send(vendor_to, wa.order_placed_to_vendor(order))
         # Reset conversation
         conv["cart"] = []
         conv["state"] = "start"
@@ -574,7 +590,17 @@ async def twilio_webhook(request: Request):
 # ============== Public Routes ==============
 @api_router.get("/")
 async def root():
-    return {"message": "Hyperlocal Commerce API", "version": "2.0"}
+    return {"message": "Hyperlocal Commerce API", "version": "2.1"}
+
+
+@api_router.get("/vendor")
+async def vendor_info():
+    """Public vendor info used by the storefront (UPI/QR, name, WhatsApp)."""
+    return {
+        "name": os.environ.get("VENDOR_NAME", "Demo Store"),
+        "upi_id": os.environ.get("VENDOR_UPI_ID", ""),
+        "whatsapp": os.environ.get("VENDOR_WHATSAPP_TO", ""),
+    }
 
 
 @api_router.get("/catalog")

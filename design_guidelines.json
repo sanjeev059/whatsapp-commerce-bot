@@ -1,0 +1,79 @@
+{
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy)",
+  "colors": {
+    "background_admin": "#F7F6F2",
+    "background_chat": "#EFECE5",
+    "surface": "#FFFFFF",
+    "text_primary": "#1A1C1A",
+    "text_secondary": "#5C605A",
+    "primary_accent": "#2C4C3B",
+    "secondary_accent": "#C05746",
+    "chat_bubble_user": "#D6C9B3",
+    "chat_bubble_bot": "#FFFFFF",
+    "border": "#E3E0D8"
+  },
+  "typography": {
+    "heading_font": "Work Sans",
+    "body_font": "IBM Plex Sans",
+    "scale": {
+      "h1": "text-4xl tracking-tight",
+      "h2": "text-2xl tracking-tight",
+      "h3": "text-xl",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm",
+      "tiny": "text-xs tracking-[0.1em] uppercase"
+    }
+  },
+  "spacing_and_layout": {
+    "strategy": "Slot-Based Parallel Streams for desktop (Admin left slot, Chat right slot). Tab toggle for mobile.",
+    "grid_gaps": "gap-6 or gap-8",
+    "padding": "Generous padding: p-6 to p-8 for containers.",
+    "border_radius": "Subtle roundness, max 8px (rounded-lg).",
+    "chat_simulator_layout": "Fixed right pane on desktop, 400px width. Left pane flex-1 for admin dashboard."
+  },
+  "components": {
+    "buttons": "Flat colors, no heavy shadows. text_primary on hover: active text inversion. Rounded-md.",
+    "cards": "Cardless or 1px subtle border (#E3E0D8) with flat surface (#FFFFFF). No drop shadows.",
+    "inputs": "Shadcn standard but customized to Organic & Earthy borders. focus:ring-2 focus:ring-primary_accent.",
+    "chat_bubbles": "Clear distinction. Bot: White with 1px border. User: Warm Sand color (#D6C9B3)."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Subtle -translate-y-px and opacity shift. Explicit hover text colors.",
+    "transitions": "transition-transform 0.2s ease, transition-opacity 0.2s ease",
+    "chat_entry": "Staggered slide-up animation for incoming chat messages."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "usage": "Use sparingly. 20px (w-5 h-5) for standard icons."
+  },
+  "media": {
+    "image_urls": {
+      "whisky_product": {
+        "url": "https://images.unsplash.com/photo-1681641095235-4031b7633c12?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2ODh8MHwxfHNlYXJjaHwxfHx3aGlza3klMjBnbGFzcyUyMGJhcnxlbnwwfHx8fDE3NzgxNTYxNTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Whisky glass for demo product",
+        "category": "product"
+      },
+      "beer_product": {
+        "url": "https://images.unsplash.com/photo-1567291612096-635b1896679a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxjcmFmdCUyMGJlZXIlMjBib3R0bGUlMjB0YWJsZXxlbnwwfHx8fDE3NzgxNTYxNTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Craft beer bottle for demo product",
+        "category": "product"
+      },
+      "bot_avatar": {
+        "url": "https://images.unsplash.com/photo-1586447610613-58e59e3f9d9e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwxfHxmcmllbmRseSUyMGJhcnRlbmRlciUyMHBvcnRyYWl0fGVufDB8fHx8MTc3ODE1NjE1Mnww&ixlib=rb-4.1.0&q=85",
+        "description": "Friendly bartender portrait for bot avatar",
+        "category": "avatar"
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build a Split-Screen layout on desktop: Left side is the Admin Dashboard (Products/Orders), Right side is the Chat Simulator.",
+    "On mobile, use a toggle/tab at the top to switch between Admin and Chat views.",
+    "Use Archetype 1 (Organic & Earthy) colors. Avoid default blue or teal WhatsApp colors.",
+    "All interactive elements must have data-testid attributes.",
+    "Use Shadcn UI for tables, tabs, inputs, and customize them to fit the flat, earthy aesthetic (no heavy box-shadows).",
+    "In the Chat Simulator, build message bubbles that mimic WhatsApp structure (tail, timestamp, tick marks) but styled in the Organic theme.",
+    "Use the provided image_urls for the demo products and the bot avatar. Do not use placeholders.",
+    "Fonts: Use Work Sans for headings and IBM Plex Sans for body text. Do not use Inter."
+  ]
+}

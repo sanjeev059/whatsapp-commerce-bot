@@ -45,14 +45,42 @@ REACT_APP_VENDOR_PHONE=916305468471
 WDS_SOCKET_PORT=443
 EOF
 
-# ---- Make sure MongoDB is up (Codespaces post-start should have done this) ----
-if ! pgrep -x mongod >/dev/null; then
-  echo "🍃 Starting MongoDB…"
-  sudo mkdir -p /data/db
-  sudo chown -R "$USER" /data/db
-  nohup mongod --bind_ip 127.0.0.1 --dbpath /data/db > /tmp/mongod.log 2>&1 &
-  sleep 2
-fi
+# ---- Make sure MongoDB is up ----
+ensure_mongo() {
+  # Already running natively?
+  if pgrep -x mongod >/dev/null 2>&1; then
+    echo "🍃 MongoDB (native) already running"
+    return
+  fi
+  # Already running in Docker?
+  if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^lc-mongo$'; then
+    echo "🍃 MongoDB (docker) already running"
+    return
+  fi
+  # Try native mongod
+  if command -v mongod >/dev/null 2>&1; then
+    echo "🍃 Starting MongoDB (native)…"
+    sudo mkdir -p /data/db
+    sudo chown -R "$USER" /data/db
+    nohup mongod --bind_ip 127.0.0.1 --dbpath /data/db > /tmp/mongod.log 2>&1 &
+    sleep 2
+    return
+  fi
+  # Fallback to Docker
+  if command -v docker >/dev/null 2>&1; then
+    echo "🍃 Starting MongoDB (docker)…"
+    if docker ps -a --format '{{.Names}}' | grep -q '^lc-mongo$'; then
+      docker start lc-mongo >/dev/null
+    else
+      docker run -d --name lc-mongo -p 27017:27017 mongo:7 >/dev/null
+    fi
+    sleep 3
+    return
+  fi
+  echo "❌ Neither mongod nor docker is available. Install one before running."
+  exit 1
+}
+ensure_mongo
 
 # ---- Start backend ----
 echo "🚀 Starting FastAPI backend on :8001…"

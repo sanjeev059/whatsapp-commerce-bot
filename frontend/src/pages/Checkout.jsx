@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
@@ -31,10 +31,11 @@ export default function Checkout() {
     items.some((i) => i.category_id === "liquor") &&
     liquorTotal < CATEGORY_RULES.liquor.minSubtotal;
 
-  if (items.length === 0) {
-    navigate("/cart", { replace: true });
-    return null;
-  }
+  useEffect(() => {
+    if (items.length === 0) navigate("/cart", { replace: true });
+  }, [items.length, navigate]);
+
+  if (items.length === 0) return null;
 
   const grouped = items.reduce((acc, it) => {
     (acc[it.category_id] = acc[it.category_id] || []).push(it);

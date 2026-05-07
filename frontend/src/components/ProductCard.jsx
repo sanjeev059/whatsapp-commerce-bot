@@ -18,6 +18,12 @@ export default function ProductCard({ product, categoryId, subgroupId }) {
           alt={product.name}
           className="w-20 h-20 rounded-2xl object-cover"
           loading="lazy"
+          onError={(e) => {
+            e.currentTarget.src =
+              "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%231c2029'/><text x='50%25' y='54%25' font-size='28' text-anchor='middle' fill='%2322d27a' font-family='sans-serif'>" +
+              encodeURIComponent((product.name || "?").charAt(0).toUpperCase()) +
+              "</text></svg>";
+          }}
         />
         {product.tag ? (
           <span

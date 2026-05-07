@@ -1,0 +1,42 @@
+{
+  "name": "Local Commerce — Hyperlocal WhatsApp Storefront",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers-contrib/features/mongodb:1": {}
+  },
+  "forwardPorts": [3000, 8001, 27017],
+  "portsAttributes": {
+    "3000": {
+      "label": "Storefront (frontend)",
+      "onAutoForward": "openPreview",
+      "visibility": "public"
+    },
+    "8001": {
+      "label": "API (backend)",
+      "onAutoForward": "silent",
+      "visibility": "public"
+    },
+    "27017": {
+      "label": "MongoDB",
+      "onAutoForward": "silent",
+      "visibility": "private"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "mongodb.mongodb-vscode"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}

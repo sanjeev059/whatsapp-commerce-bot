@@ -21,6 +21,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from xml.sax.saxutils import escape as xml_escape
 
 from seed_data import SEED_CATEGORIES, SEED_SUBGROUPS, expanded_seed_products
+import whatsapp_service as wa
 
 # ============== Setup ==============
 mongo_url = os.environ["MONGO_URL"]
@@ -186,6 +187,7 @@ class OrderCreate(BaseModel):
     customer_phone: str
     delivery_address: str
     notes: str = ""
+    payment_mode: str = "Cash on Delivery"
     items: List[OrderItem]
 
 
@@ -197,6 +199,7 @@ class Order(BaseModel):
     customer_phone: str
     delivery_address: str
     notes: str = ""
+    payment_mode: str = "Cash on Delivery"
     items: List[OrderItem]
     total: float
     status: str = "placed"
@@ -626,12 +629,21 @@ async def place_order(payload: OrderCreate):
         "customer_phone": payload.customer_phone.strip(),
         "delivery_address": payload.delivery_address.strip(),
         "notes": (payload.notes or "").strip(),
+        "payment_mode": (payload.payment_mode or "Cash on Delivery").strip(),
         "items": [i.model_dump() for i in payload.items],
         "total": total,
         "status": "placed",
         "created_at": now_iso(),
     }
     await db.orders.insert_one(dict(order))
+
+    # Fire WhatsApp notifications (non-blocking — best effort)
+    vendor_to = os.environ.get("VENDOR_WHATSAPP_TO", "").strip()
+    if vendor_to:
+        wa.send(vendor_to, wa.order_placed_to_vendor(order))
+    if order["customer_phone"]:
+        wa.send(order["customer_phone"], wa.order_placed_to_customer(order))
+
     return Order(**order)
 
 
@@ -729,6 +741,10 @@ async def update_order_status(oid: str, payload: OrderStatusUpdate):
     )
     if not res:
         raise HTTPException(404, "Order not found")
+    # Notify customer of status change (best-effort)
+    msg = wa.status_change_to_customer(res, payload.status)
+    if msg and res.get("customer_phone"):
+        wa.send(res["customer_phone"], msg)
     return Order(**res)
 
 

@@ -1,58 +1,63 @@
 # Local Commerce — Hyperlocal WhatsApp Storefront PRD
 
 ## Original Problem Statement
-Build a mobile-first hyperlocal commerce platform optimized for the WhatsApp ordering flow. Customer scans QR code at local liquor/MRP store → WhatsApp opens → customer taps "Open Store" → beautiful mobile storefront → cart → checkout → formatted order summary opens in WhatsApp directly with vendor. Inspirations: Blinkit, Swiggy Instamart, Zepto. Mock data only. No auth. No payments.
+Build a mobile-first hyperlocal commerce platform with WhatsApp `wa.me` deep-link checkout (Blinkit/Zepto-style). Customer scans QR at local store → mobile storefront → cart → checkout → formatted order summary opens in WhatsApp ready to send to vendor. Optional vendor admin dashboard added on top.
 
 ## User Personas
-- **Customer**: walks up to a local store, scans QR, browses items on phone, places order via WhatsApp.
-- **Vendor (future)**: receives orders directly in their WhatsApp Business inbox.
+- **Customer**: scans QR, browses on phone, places order via WhatsApp.
+- **Vendor**: receives orders in WhatsApp AND in vendor admin dashboard for tracking + status management.
 
 ## Core Requirements (Static)
-- Premium dark mobile-first UI (max-width 480px phone-frame on desktop)
+- Premium dark mobile-first storefront (max-width 480px phone-frame on desktop)
 - 4 categories: Liquor, Cigarettes, Snacks, Food
-- Liquor minimum subtotal ₹1000 rule (warn + block)
-- Cigarettes: Full Pack Only enforcement (badge + notice)
-- Sticky cart bar with live total and item count
+- Liquor minimum ₹1000 rule (warn + block, server-enforced)
+- Cigarettes: Full Pack Only enforcement
+- Sticky cart bar with live total, category-grouped cart
 - WhatsApp `wa.me` deep-link checkout — no payment gateway
-- Mock data only, FastAPI serves `/api/catalog`
-- Tech: React + Tailwind + FastAPI
+- Vendor admin dashboard with JWT auth (single seeded admin)
+- Mock data seeded once on first startup; admin can CRUD products
+- Tech: React + Tailwind + FastAPI + MongoDB + bcrypt + PyJWT
 
-## What's Been Implemented (May 7, 2026)
-- ✅ Backend `/api/catalog` returning 4 categories, 13 subgroups, 54 mock products with images, prices, units, tags
-- ✅ Landing page with hero, gradient blobs, "Open Store" CTA, feature pills
-- ✅ Categories grid with hero images and tagline cards
-- ✅ Products page with subgroup chips (Beer/Whisky/Vodka/Rum/Gin etc.), product cards, ADD-to-stepper swap
-- ✅ Cigarettes page shows "Full Pack Only" notice + per-product tags
-- ✅ Cart page: category-grouped, quantity steppers, remove, FREE delivery line, bill summary
-- ✅ Liquor min ₹1000 rule: red warning, disabled checkout button when below
-- ✅ Sticky cart bar visible on landing/store/products, hidden on /cart /checkout /confirmation
-- ✅ Checkout: name, phone, address, notes form with validation (toast errors)
-- ✅ Place Order opens wa.me link with emoji-grouped order summary, then routes to /confirmation
-- ✅ Confirmation page: ref ID, summary, re-open WhatsApp, copy summary, back-to-store
-- ✅ Cart persistence in localStorage (lc_cart_v1)
-- ✅ Image fallback (SVG initial) for broken Unsplash URLs
-- ✅ Design: Plus Jakarta Sans + Manrope, emerald-amber accent gradients, premium dark surfaces
-- ✅ All interactive elements have `data-testid`
-- ✅ Tested: 100% backend + 100% frontend (testing_agent_v3 iteration 1)
+## What's Been Implemented
 
-## Prioritized Backlog
-- **P1**: Vendor admin dashboard (login, orders list, status updates)
-- **P1**: Real database persistence with order audit trail
-- **P2**: Order tracking link back to customer (status updates via WhatsApp)
-- **P2**: Search + recently ordered
-- **P2**: Multi-vendor / multi-store support keyed off QR
-- **P3**: Subscriptions (e.g., weekly beer pack)
-- **P3**: Analytics for vendor (top products, peak hours)
+### Iteration 1 (May 7, 2026) — Customer storefront
+- ✅ FastAPI `/api/catalog` (mock data)
+- ✅ Landing → Categories → Products → Cart → Checkout → Confirmation
+- ✅ Sticky cart bar, quantity steppers, liquor min ₹1000 rule, cigarettes Full Pack Only
+- ✅ WhatsApp `wa.me` deep link with emoji-grouped order summary
+- ✅ localStorage cart persistence, image fallback
+- ✅ 100% testing pass (testing_agent_v3 iteration_1.json)
+
+### Iteration 2 (May 7, 2026) — Vendor admin dashboard
+- ✅ DB-backed catalog (categories/subgroups/products in MongoDB, seeded once)
+- ✅ Orders persisted in MongoDB on Place Order (server enforces liquor min)
+- ✅ JWT auth with bcrypt + brute-force protection (5 fails = 15 min lockout per {ip}:{email})
+- ✅ Admin pages: `/admin/login`, `/admin` (Dashboard), `/admin/orders`, `/admin/products`
+- ✅ Dashboard: today's revenue, today's orders, all-time orders, products count, status pipeline pills, recent orders (polled every 15s)
+- ✅ Orders: filter chips, status update select, detail modal with re-share customer WhatsApp + copy details
+- ✅ Products: search + category filter, full CRUD with category+subgroup picker, image fallback
+- ✅ Sidebar nav (desktop) + bottom nav (mobile), 401 auto-logout via axios interceptor
+- ✅ Seeded admin: `admin@store.com` / `admin123`
+- ✅ 100% testing pass (testing_agent_v3 iteration_2.json — 22/22 backend + all frontend flows)
 
 ## Files of Reference
-- `backend/server.py` — `/api/catalog`
-- `frontend/src/App.js` — routes
+- `backend/server.py` — auth, admin router, public order endpoint, catalog
+- `backend/seed_data.py` — initial catalog data (4 cat, 15 subgroups, 54 products)
+- `backend/.env` — `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
+- `frontend/src/App.js` — routes (customer + admin)
+- `frontend/src/context/{AdminAuthContext,CartContext}.jsx`
 - `frontend/src/pages/{Landing,Categories,Products,Cart,Checkout,Confirmation}.jsx`
-- `frontend/src/context/CartContext.jsx` — cart state, totals, byCat for liquor rule
-- `frontend/src/lib/whatsapp.js` — buildOrderMessage, buildWhatsAppLink
-- `frontend/src/config.js` — VENDOR_PHONE, CATEGORY_RULES
-- `frontend/src/components/{StickyCartBar,ProductCard,QuantityStepper,Header}.jsx`
+- `frontend/src/pages/admin/{AdminLogin,AdminLayout,AdminDashboard,AdminOrders,AdminProducts}.jsx`
+- `frontend/src/lib/{whatsapp,format,apiClient,apiError}.js`
 
-## Next Tasks
-- Hand off to user for vendor phone configuration
-- Optional: add vendor admin panel (P1)
+## Prioritized Backlog
+- **P1**: Order tracking link sent back to customer (status updates pushed via WhatsApp)
+- **P1**: Multi-vendor / per-store QR codes deep-linking to a specific vendor catalog
+- **P2**: Categories CRUD (currently 4 fixed) + subgroup CRUD UI in admin
+- **P2**: Search on storefront + recently ordered for returning customers
+- **P3**: Subscriptions, vendor analytics, peak-hour insights
+- **P3**: Migrate to FastAPI lifespan() instead of deprecated `on_event` hooks
+
+## Next Tasks (When User Returns)
+- Add real WhatsApp number in `frontend/src/config.js` `VENDOR_PHONE` or `REACT_APP_VENDOR_PHONE`
+- Optionally enable browser push / sound for new-order alerts in admin

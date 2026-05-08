@@ -265,12 +265,23 @@ function PasswordChangeCard() {
     }
     setSubmitting(true);
     try {
-      await api.post("/auth/change-password", {
-        current_password: form.current_password,
-        new_password: form.new_password,
-      });
-      toast.success("Password changed");
-      setForm({ current_password: "", new_password: "", confirm: "" });
+      const res = await api.post(
+        "/auth/change-password",
+        {
+          current_password: form.current_password,
+          new_password: form.new_password,
+        },
+        { validateStatus: () => true } // bypass global 401 interceptor
+      );
+      if (res.status === 200) {
+        toast.success("Password changed");
+        setForm({ current_password: "", new_password: "", confirm: "" });
+      } else {
+        toast.error(
+          (res.data && (res.data.detail || res.data.message)) ||
+            "Could not change password"
+        );
+      }
     } catch (e) {
       toast.error(apiErrorMessage(e));
     } finally {

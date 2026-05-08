@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration-5 frontend re-test of the iteration-4 HIGH-priority bug (vendor admin booted to /admin/login on wrong current password during /admin/store password change). Bug is now FIXED. All 5 requested scenarios pass end-to-end with real backend (no mocks). Fix verified in two layers: (1) global axios 401 interceptor in AdminAuthContext.jsx whitelists URLs containing '/auth/change-password' so it does NOT setUser(false); (2) PasswordChangeCard in AdminStore.jsx passes { validateStatus: () => true } so axios resolves the promise on non-2xx and inspects res.status manually. Regression for legitimate session-expiry (tampered token => logout) still works.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "scenarios_verified": [
+    {
+      "name": "Wrong current password",
+      "result": "PASS",
+      "evidence": "POST /api/auth/change-password returned 401, toast 'Current password is incorrect' shown, URL stayed on /admin/store, [data-testid=password-card] still visible, lc_admin_token still present in localStorage."
+    },
+    {
+      "name": "Mismatched confirm",
+      "result": "PASS",
+      "evidence": "Toast \"Passwords don't match\" shown, ZERO network calls to /auth/change-password (client-side guard), still on /admin/store."
+    },
+    {
+      "name": "New password too short (<8)",
+      "result": "PASS",
+      "evidence": "Toast 'New password must be at least 8 characters' shown, ZERO network calls to /auth/change-password, still on /admin/store."
+    },
+    {
+      "name": "Happy path: change pw -> sign out -> sign in with new -> change back",
+      "result": "PASS",
+      "evidence": "Changed sharma-wines123 -> TempForTest_2026 (toast 'Password changed'), logged out, logged in with TempForTest_2026 (success), reverted back to sharma-wines123 (toast 'Password changed'), re-logged in with original password (success). /app/memory/test_credentials.md remains accurate."
+    },
+    {
+      "name": "Regression: tampered token triggers logout",
+      "result": "PASS",
+      "evidence": "Login → localStorage.setItem('lc_admin_token','tampered.invalid.token') → page.reload() → user redirected to /admin/login as expected (interceptor still kills session for non-whitelisted 401s)."
+    }
+  ],
+  "test_report_links": [
+    "/app/test_reports/iteration_5.json",
+    "/app/backend/tests/test_iter4_features.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminAuthContext.jsx (lines 46-62): URL whitelist on '/auth/change-password' is correct; uses err.config.url which is the relative path passed to api.post (so substring match is reliable). Consider extracting whitelist to a const array for future endpoints (low priority).",
+    "AdminStore.jsx PasswordChangeCard (lines 251-342): { validateStatus: () => true } pattern is a good belt-and-suspenders defense; res.status is then explicitly checked. Either fix alone would suffice but defense-in-depth is appropriate here.",
+    "Both fixes do NOT broaden the whitelist beyond change-password — confirmed via Test 5 (tampered token still logs out), so legit session-expiry path is preserved."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only run; backend confirmed via Test 1's 401 round-trip)", "frontend": "100% (5/5 scenarios)" },
+  "test_credentials": "Vendor: sharma-wines@vendor.local / sharma-wines123 (reverted after happy-path test). Master: master@localcommerce.in / master123 (not used in this run).",
+  "seed_data_creation": "None. Vendor password rotated to TempForTest_2026 mid-test then reverted to sharma-wines123. Verified by re-login with original password at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-4 HIGH-priority bug (wrong-current-password kicks vendor to /admin/login) is FIXED and verified. The fix lives in AdminAuthContext.jsx (interceptor URL whitelist) + AdminStore.jsx (validateStatus). The regression suite test_iter4_features.py covers the backend side (401 + token-not-invalidated). For future password-validating endpoints that intentionally return 401 in-form, add their URL substring to the interceptor whitelist; current implementation only whitelists '/auth/change-password'.",
+  "rca of the issue": "Original bug RCA (from iteration_4) was correct: a global axios response interceptor in AdminAuthContext.jsx treated ANY 401 as session-expiry and called setToken(null) + setUser(false), tearing down the vendor session even when 401 was just business-validation feedback from /api/auth/change-password. Mitigation applied by main agent: (a) interceptor checks err.config.url and skips session-kill if url includes '/auth/change-password'; (b) the call site additionally uses validateStatus: () => true so axios doesn't even reject on 401, the success branch runs and inspects res.status. Verified end-to-end: user remains authenticated, sees the toast, can retry. Regression preserved: tampered/expired token on any other endpoint still logs the user out."
+}

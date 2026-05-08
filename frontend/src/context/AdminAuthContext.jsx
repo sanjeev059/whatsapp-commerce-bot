@@ -43,12 +43,15 @@ export function AdminAuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Global 401 handler
+  // Global 401 handler — but skip endpoints where 401 means "wrong field input",
+  // not "session expired" (e.g. change-password).
   useEffect(() => {
     const id = api.interceptors.response.use(
       (r) => r,
       (err) => {
-        if (err?.response?.status === 401) {
+        const url = err?.config?.url || "";
+        const isInFormAuthCheck = url.includes("/auth/change-password");
+        if (err?.response?.status === 401 && !isInFormAuthCheck) {
           setToken(null);
           setUser(false);
         }

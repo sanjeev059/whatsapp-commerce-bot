@@ -18,6 +18,7 @@ import {
   Bell,
   BellOff,
   BellRing,
+  BarChart3,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -124,12 +125,13 @@ export default function AdminLayout() {
     { to: "/admin", end: true, icon: LayoutDashboard, label: "Dashboard" },
     { to: "/admin/orders", icon: ListOrdered, label: "Orders" },
     { to: "/admin/products", icon: Package, label: "Products" },
+    { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
     { to: "/admin/store", icon: Store, label: "Store settings" },
   ];
   const links = isMaster ? masterLinks : vendorLinks;
   const mobileLinks = isMaster
     ? masterLinks
-    : vendorLinks.slice(0, 4); // dashboard, orders, products, store
+    : vendorLinks.filter((l) => l.label !== "Store settings"); // 4 items fit on mobile
 
   return (
     <div className="min-h-[100dvh] flex" data-testid="admin-layout">

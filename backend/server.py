@@ -23,6 +23,9 @@ from typing import List, Optional, Dict, Any
 
 import bcrypt
 import jwt
+import httpx
+from collections import defaultdict, deque
+from threading import Lock
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, status
 from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -177,6 +180,62 @@ async def push_to_vendor(vendor_id: str, payload: Dict[str, Any]) -> int:
     if stale_endpoints:
         await db.push_subscriptions.delete_many({"subscription.endpoint": {"$in": stale_endpoints}})
     return sent
+
+
+# ==================== rate limiter (in-memory, per IP) ====================
+_RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
+_RATE_LOCK = Lock()
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit(window_seconds: int, max_calls: int):
+    """Simple sliding-window in-memory rate limit. Keyed per-IP per-endpoint per-(window,limit)."""
+    bucket_id = f"w{window_seconds}m{max_calls}"
+    def dep(request: Request):
+        key = f"{request.url.path}:{bucket_id}:{_client_ip(request)}"
+        now = datetime.now(timezone.utc).timestamp()
+        with _RATE_LOCK:
+            bucket = _RATE_BUCKETS[key]
+            while bucket and now - bucket[0] > window_seconds:
+                bucket.popleft()
+            if len(bucket) >= max_calls:
+                retry_after = int(window_seconds - (now - bucket[0])) + 1
+                raise HTTPException(
+                    429,
+                    f"Too many requests — try again in {retry_after}s",
+                    headers={"Retry-After": str(retry_after)},
+                )
+            bucket.append(now)
+        return True
+    return dep
+
+
+# ==================== reverse geocoding (OpenStreetMap Nominatim) ====================
+async def reverse_geocode(lat: float, lng: float) -> Optional[Dict[str, Any]]:
+    """Best-effort reverse geocode via Nominatim. Returns None on any failure."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": lat, "lon": lng, "format": "json", "zoom": 18, "addressdetails": 1},
+                headers={"User-Agent": "LocalCommerce/3.0 (+https://localcommerce.in)"},
+            )
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            return {
+                "display_name": data.get("display_name", ""),
+                "address": data.get("address") or {},
+            }
+    except Exception as e:
+        logger.warning("reverse geocode failed: %s", e)
+        return None
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -411,8 +470,27 @@ async def get_vapid_public_key():
     return {"public_key": VAPID_PUBLIC, "enabled": bool(VAPID_PUBLIC and VAPID_PRIVATE_PEM)}
 
 
+@api.get(
+    "/geocode/reverse",
+    dependencies=[Depends(rate_limit(window_seconds=60, max_calls=20))],
+)
+async def public_reverse_geocode(lat: float, lng: float):
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise HTTPException(400, "Invalid coordinates")
+    res = await reverse_geocode(lat, lng)
+    if not res:
+        raise HTTPException(503, "Address lookup failed — please try again")
+    return res
+
+
 # ==================== orders (public POST + tracking GET) ====================
-@api.post("/orders")
+@api.post(
+    "/orders",
+    dependencies=[
+        Depends(rate_limit(window_seconds=60, max_calls=3)),
+        Depends(rate_limit(window_seconds=3600, max_calls=12)),
+    ],
+)
 async def place_order(payload: OrderCreate):
     v = await db.vendors.find_one({"slug": payload.vendor_slug}, {"_id": 0})
     if not v:
@@ -763,6 +841,116 @@ async def vendor_orders(status_filter: Optional[str] = None, limit: int = 200, u
     if status_filter and status_filter in ORDER_STATES:
         q["status"] = status_filter
     return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+
+@vendor_r.get("/analytics")
+async def vendor_analytics(days: int = 30, user=Depends(require_vendor)):
+    """Peak hours, day-of-week distribution, night-pricing uplift, top products."""
+    days = max(1, min(int(days), 90))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cur = db.orders.find(
+        {"vendor_id": user["vendor_id"], "created_at": {"$gte": cutoff.isoformat()}},
+        {"_id": 0},
+    )
+    orders = await cur.to_list(5000)
+
+    # Only count fulfilled / in-progress orders for revenue (exclude rejected/cancelled)
+    PAID_STATES = {"payment_verified", "accepted", "out_for_delivery", "delivered"}
+
+    hourly = [{"hour": h, "revenue": 0.0, "orders": 0} for h in range(24)]
+    dow = [{"day": d, "revenue": 0.0, "orders": 0} for d in range(7)]  # 0=Mon
+    cat_rev: Dict[str, float] = {}
+    product_rev: Dict[str, Dict[str, Any]] = {}
+    night_revenue = 0.0
+    base_revenue_when_night = 0.0
+    total_orders = 0
+    paid_orders = 0
+    paid_revenue = 0.0
+
+    vendor = user["vendor"]
+    base_prices: Dict[str, float] = {}
+    if any(o.get("night_pricing_applied") for o in orders):
+        # cache product base prices for uplift calc
+        prods = await db.products.find(
+            {"vendor_id": user["vendor_id"]}, {"_id": 0, "id": 1, "price": 1}
+        ).to_list(5000)
+        base_prices = {p["id"]: float(p["price"]) for p in prods}
+
+    for o in orders:
+        total_orders += 1
+        try:
+            ts = datetime.fromisoformat(o["created_at"].replace("Z", "+00:00"))
+            ist = ts + timedelta(hours=5, minutes=30)
+        except Exception:
+            continue
+        h = ist.hour
+        d = ist.weekday()
+        rev = float(o.get("total", 0))
+        is_paid = o.get("status") in PAID_STATES
+        hourly[h]["orders"] += 1
+        dow[d]["orders"] += 1
+        if is_paid:
+            paid_orders += 1
+            paid_revenue += rev
+            hourly[h]["revenue"] += rev
+            dow[d]["revenue"] += rev
+            for it in o.get("items", []):
+                line = float(it.get("price", 0)) * int(it.get("qty", 0))
+                cat = it.get("category_id", "other")
+                cat_rev[cat] = cat_rev.get(cat, 0) + line
+                pid = it.get("product_id", "")
+                pname = it.get("name", "Unknown")
+                if pid not in product_rev:
+                    product_rev[pid] = {"id": pid, "name": pname, "qty": 0, "revenue": 0.0}
+                product_rev[pid]["qty"] += int(it.get("qty", 0))
+                product_rev[pid]["revenue"] += line
+            if o.get("night_pricing_applied"):
+                night_revenue += rev
+                # estimate uplift = (effective − base) summed
+                applied_cats = vendor.get("night_categories") or []
+                mult = float(vendor.get("night_multiplier") or 1.0)
+                if mult > 0:
+                    for it in o.get("items", []):
+                        if applied_cats and it.get("category_id") not in applied_cats:
+                            continue
+                        base = base_prices.get(it.get("product_id"), float(it.get("price", 0)) / mult)
+                        base_revenue_when_night += base * int(it.get("qty", 0))
+
+    top_products = sorted(product_rev.values(), key=lambda x: x["revenue"], reverse=True)[:5]
+
+    # peak hour = highest revenue hour with at least 1 order
+    peak_hour = max(hourly, key=lambda x: (x["revenue"], x["orders"]))
+    peak_dow_idx = max(range(7), key=lambda i: dow[i]["revenue"])
+
+    night_uplift_amount = round(night_revenue - base_revenue_when_night, 2)
+    night_uplift_pct = (
+        round((night_revenue / base_revenue_when_night - 1) * 100, 1)
+        if base_revenue_when_night > 0 else 0.0
+    )
+
+    DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    return {
+        "window_days": days,
+        "total_orders": total_orders,
+        "paid_orders": paid_orders,
+        "paid_revenue": round(paid_revenue, 2),
+        "avg_order_value": round(paid_revenue / paid_orders, 2) if paid_orders else 0.0,
+        "hourly": hourly,
+        "day_of_week": [{"day": DAY_NAMES[i], **dow[i]} for i in range(7)],
+        "peak_hour": peak_hour["hour"] if peak_hour["orders"] > 0 else None,
+        "peak_day": DAY_NAMES[peak_dow_idx] if dow[peak_dow_idx]["orders"] > 0 else None,
+        "category_revenue": [{"category": k, "revenue": round(v, 2)} for k, v in
+                             sorted(cat_rev.items(), key=lambda x: -x[1])],
+        "top_products": [
+            {**p, "revenue": round(p["revenue"], 2)} for p in top_products
+        ],
+        "night_revenue": round(night_revenue, 2),
+        "night_base_revenue": round(base_revenue_when_night, 2),
+        "night_uplift_amount": night_uplift_amount,
+        "night_uplift_pct": night_uplift_pct,
+        "night_pricing_enabled": bool(vendor.get("night_pricing_enabled")),
+    }
 
 
 @vendor_r.patch("/orders/{oid}")

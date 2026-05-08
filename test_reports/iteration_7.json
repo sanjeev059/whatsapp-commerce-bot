@@ -1,0 +1,86 @@
+{
+  "summary": "Iteration-7 P2-polish (Vendor Analytics + Reverse Geocoding + Rate-limited /api/orders & /api/geocode/reverse) tested end-to-end. Backend: 14/14 pytest cases pass on a brand-new test_iter7_features.py — analytics auth (401/403/200), payload shape, days clamp [1,90]; reverse-geocode invalid lat/lng → 400 and Bangalore valid coord returns display_name+address from Nominatim; orders rate-limit gives exactly 3 successes then 429 with 'Too many requests' detail and Retry-After header; integration test verified that placing a paid liquor order with night pricing on bumps night_revenue and night_uplift_amount > 0. Frontend: vendor /admin/analytics renders all 13 expected testids (admin-analytics-page, analytics-range-{7,30,90}, stat-revenue, stat-paid-orders, stat-aov, stat-peak-hour, hourly-chart, dow-chart, night-uplift-card, top-products-card, category-mix-card); Recharts SVG bars render in both charts; range chips fire /api/vendor/analytics?days=7|30|90. Sidebar 'Analytics' link visible for vendor; master_admin does NOT see the link, and direct visit to /admin/analytics correctly redirects to /admin/master. Mobile bottom-nav shows exactly 4 items (Dashboard, Orders, Products, Analytics) — Store settings dropped as designed.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/vendor/analytics",
+        "issue": "day_of_week[].day is an INTEGER 0–6, not the string label ('Mon','Tue',...). Root cause: server.py L940 builds the row as `{'day': DAY_NAMES[i], **dow[i]}` but `**dow[i]` already contains key 'day' set to the integer i, and the spread happens AFTER, so the integer overwrites the string. The dow-chart in AdminAnalytics.jsx uses dataKey='day' as the X-axis label, so the chart now displays 0,1,2,3,4,5,6 instead of Mon,Tue,Wed,Thu,Fri,Sat,Sun (visible in screenshot). Fix: change L940 to `[{**dow[i], 'day': DAY_NAMES[i]} for i in range(7)]` (spread first, then override).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/orders (rate-limit semantics)",
+        "issue": "Failed validations (e.g. 400 'Liquor minimum order is ₹1000') still consume the rate-limit bucket because the rate_limit dependency runs and appends BEFORE OrderCreate body validation. Effect: a customer who mistypes their order 3 times is locked out for 60s. Consider only consuming the bucket after successful order creation, or skipping the bucket-append on 4xx body validation. Not blocking for this iteration."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminAnalytics – dow-chart",
+        "issue": "X-axis labels render as 0,1,2,3,4,5,6 instead of Mon/Tue/Wed/Thu/Fri/Sat/Sun (caused by the backend bug above). Confirmed visually on /admin/analytics. peak_day footer text correctly shows 'Strongest day: Fri', so the bug is purely the day_of_week list.",
+        "selector": "[data-testid=\"dow-chart\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Checkout reverse-geocode auto-fill",
+        "issue": "Could not exercise the UI flow end-to-end because adding a product from the storefront list did not place items in the cart in the headless run (the existing Add+/quantity controls weren't matched by my generic selectors), so /store/sharma-wines/checkout rendered the 'Your cart is empty' state and never showed capture-location-btn / checkout-input-address. Backend GET /api/geocode/reverse?lat=12.97&lng=77.59 is verified working (returns display_name+address from Nominatim) and Checkout.jsx source contains the captureLocation+pre-fill logic per spec. Recommend a real-browser smoke or a Playwright script that pre-populates cart via localStorage to fully verify.",
+        "affected_selectors": ["capture-location-btn", "checkout-input-address"]
+      }
+    ],
+    "design_issues": []
+  },
+  "scenarios_verified": [
+    {"name": "GET /api/vendor/analytics auth (401 noauth, 403 master, 200 vendor)", "result": "PASS"},
+    {"name": "Analytics payload shape (window_days, hourly[24], day_of_week[7], peak_hour, peak_day, night_*, category_revenue, top_products[<=5])", "result": "PASS"},
+    {"name": "Analytics days clamp: 0 → 1, 500 → 90, 7 → 7", "result": "PASS"},
+    {"name": "GET /api/geocode/reverse lat>90 or lng>180 → 400", "result": "PASS"},
+    {"name": "GET /api/geocode/reverse Bangalore (12.9716, 77.5946) returns display_name+address", "result": "PASS (Nominatim live)"},
+    {"name": "POST /api/orders rate-limit: 3 succeed, 4th 429 with 'Too many' detail + Retry-After", "result": "PASS"},
+    {"name": "Pricing+analytics integration: night-on liquor paid order increases night_revenue & night_uplift_amount > 0", "result": "PASS"},
+    {"name": "Frontend vendor /admin/analytics renders 13 testids", "result": "PASS"},
+    {"name": "Recharts SVG bars in hourly-chart and dow-chart", "result": "PASS (28 / 11 path nodes)"},
+    {"name": "Range chips switch dataset (network calls observed for days=7,30,90)", "result": "PASS"},
+    {"name": "Master_admin does not see Analytics link; direct /admin/analytics → /admin/master redirect", "result": "PASS"},
+    {"name": "Mobile bottom-nav has exactly 4 items (Dashboard, Orders, Products, Analytics) — Store settings dropped", "result": "PASS"},
+    {"name": "Checkout reverse-geocode auto-fill UI", "result": "NOT VERIFIED (cart-empty environmental issue, see integration_issues)"},
+    {"name": "Regression: storefront, VAPID public key, role isolation", "result": "PASS"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_features.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): server.py L940 — change `[{'day': DAY_NAMES[i], **dow[i]} for i in range(7)]` to `[{**dow[i], 'day': DAY_NAMES[i]} for i in range(7)]` so day_of_week[].day is the named string. Without this, dow-chart X-axis shows 0–6 instead of Mon–Sun (visible in the screenshot).",
+    "(Minor) Consider not consuming the /api/orders rate-limit bucket on 4xx body-validation failures — currently a user who mistypes their order 3 times eats their full minute-window budget.",
+    "(Optional) Add a Playwright smoke that pre-populates cart in localStorage and clicks capture-location-btn so the geocode auto-fill flow is exercised in CI; in this run the storefront add-to-cart didn't trigger via generic selectors so Checkout couldn't be reached."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1158 lines. Past the ~700 soft-cap by ~65%. Strongly recommend splitting into routers (master_router.py, vendor_router.py, public_router.py) and pulling helpers (rate_limit, reverse_geocode, push) into modules. Each new feature (push, night pricing, bulk import, analytics, rate limiter, reverse geocode) added 100–200 lines and the file is becoming hard to scan.",
+    "rate_limit() is in-memory per-process. Documented in agent-to-agent context — for any horizontal scaling (more than 1 backend pod) the bucket won't be shared and a customer could legitimately exceed the cap by 3*N where N=#pods. Move to Redis (or a sticky-session ingress) before scaling out.",
+    "rate_limit appends to bucket BEFORE the request body is validated, so failed orders consume the budget. Either (a) move rate-limit consumption inside place_order after validation, or (b) document this as anti-abuse behaviour (which it kind of is).",
+    "vendor_analytics: night_uplift_amount uses base_revenue_when_night = sum(base * qty), but base_prices dict is only populated `if any(o.night_pricing_applied)`. For orders whose product has been deleted since (no row in base_prices), the fallback `float(it.price) / mult` is correct only if the same multiplier was active at order time — if multiplier was changed later, the historical uplift is wrong. Acceptable for MVP but worth a comment.",
+    "vendor_analytics fetches all orders via `to_list(5000)` and computes in Python. With aggressive growth this should move to a single MongoDB aggregation pipeline ($match → $group on $hour, $dayOfWeek, $sum totals).",
+    "reverse_geocode hits Nominatim on every request with no cache. Even at 20/min/IP cap, 100 customers across the platform = 100 unique upstream calls per checkout funnel and Nominatim has a 1-req/sec global anti-abuse limit. Add a tiny in-memory LRU keyed by (round(lat,3), round(lng,3)) → ~110m precision, 5-min TTL.",
+    "reverse_geocode's User-Agent is hard-coded to a (probably non-existent) 'localcommerce.in' contact URL. Per Nominatim usage policy you should provide a real contact. Pull from env: `NOMINATIM_USER_AGENT`."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_features.py (new)",
+    "/app/backend/tests/conftest.py (new — loads REACT_APP_BACKEND_URL from /app/frontend/.env)",
+    "/app/test_reports/pytest/iter7_results.xml (generated)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 in test_iter7_features.py — analytics auth/shape/clamp, geocode valid+invalid, rate-limit 3-then-429, night uplift integration, regression)",
+    "frontend": "~85% (vendor analytics page + role isolation + mobile-nav verified end-to-end; checkout reverse-geocode UI unverified due to cart-empty env issue, but backend endpoint independently verified)"
+  },
+  "test_credentials": "Vendor: sharma-wines@vendor.local / sharma-wines123. Master: master@localcommerce.in / master123. Both unchanged from /app/memory/test_credentials.md.",
+  "seed_data_creation": "TEST_NightUplift order placed under sharma-wines (10 × liquor product, qty=10, status moved to payment_verified) — contributes ~₹2160 to vendor's analytics paid_revenue and night_revenue for the day-of-test. TEST_RL_0/1/2 orders placed during rate-limit test for non-liquor in-stock product. Vendor pricing rules restored to night_pricing_enabled=false in the autouse module fixture teardown.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter7_features.py is the canonical iteration-7 regression file. The single failure mode known is the dict-key-override bug at server.py L940 producing integer day labels — fix the comprehension and the dow-chart will render Mon/Tue/.../Sun correctly. The /api/orders rate-limit test takes ~62s up-front (sliding-window clear) and the integration test takes another ~62s; total module run is ~2m08s. /api/geocode/reverse depends on Nominatim — if upstream is throttling your test IP the test_valid_bangalore is written to also accept 503. The Checkout geocode UI path could not be exercised in this run because adding-to-cart from the storefront via generic selectors failed; recommend pre-populating cart via localStorage seed before navigating to /store/sharma-wines/checkout.",
+  "rca of the issue": "BUG: GET /api/vendor/analytics → day_of_week[].day returns integers (0–6) instead of string labels (Mon–Sun). Reproduction: `curl -H 'Authorization: Bearer <vendor_jwt>' $BASE/api/vendor/analytics?days=30` — observe `day_of_week[0]` == `{day: 0, revenue:..., orders:...}`. Root cause: in server.py L940 the dict comprehension `{'day': DAY_NAMES[i], **dow[i]}` is built with the string key first, but `**dow[i]` is a row that already contains `day=i` (initialised at L861 as `{'day': d, 'revenue': 0.0, 'orders': 0}`), and Python's dict-merge semantics let the spread (which appears later) overwrite the earlier explicit key. Mitigation: swap the order: `{**dow[i], 'day': DAY_NAMES[i]}`. Visual impact: the dow-chart on /admin/analytics labels its bars 0..6 instead of Mon..Sun. Note: peak_day is computed via DAY_NAMES[peak_dow_idx] separately and is correct (renders 'Fri' in the UI footer). After the one-line fix, no further test changes required."
+}

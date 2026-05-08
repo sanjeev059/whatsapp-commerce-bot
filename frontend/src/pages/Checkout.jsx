@@ -53,13 +53,27 @@ export default function Checkout() {
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({
-          lat: Number(pos.coords.latitude.toFixed(6)),
-          lng: Number(pos.coords.longitude.toFixed(6)),
-        });
-        setLocating(false);
-        toast.success("Location captured");
+      async (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setCoords({ lat, lng });
+        // Try to reverse-geocode to suggest an address (best-effort)
+        try {
+          const { data } = await api.get("/geocode/reverse", {
+            params: { lat, lng },
+            headers: { Authorization: "" },
+          });
+          if (data?.display_name && !form.address.trim()) {
+            setForm((f) => ({ ...f, address: data.display_name }));
+            toast.success("Location captured · address pre-filled");
+          } else {
+            toast.success("Location captured");
+          }
+        } catch {
+          toast.success("Location captured");
+        } finally {
+          setLocating(false);
+        }
       },
       (err) => {
         setLocating(false);
@@ -181,7 +195,14 @@ export default function Checkout() {
       clear();
       setTimeout(() => navigate("/confirmation", { replace: true }), 200);
     } catch (e) {
-      toast.error(apiErrorMessage(e, "Could not place order"));
+      if (e?.response?.status === 429) {
+        toast.error(
+          e?.response?.data?.detail ||
+            "Too many orders just now — please wait a moment and try again"
+        );
+      } else {
+        toast.error(apiErrorMessage(e, "Could not place order"));
+      }
       setSubmitting(false);
     }
   };

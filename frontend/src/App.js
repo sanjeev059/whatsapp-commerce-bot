@@ -19,6 +19,7 @@ import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminOrders from "@/pages/admin/AdminOrders";
 import AdminProducts from "@/pages/admin/AdminProducts";
 import AdminStore from "@/pages/admin/AdminStore";
+import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import MasterDashboard from "@/pages/admin/MasterDashboard";
 import MasterVendors from "@/pages/admin/MasterVendors";
 
@@ -38,6 +39,7 @@ function App() {
                 <Route index element={<AdminDashboard />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="products" element={<AdminProducts />} />
+                <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="store" element={<AdminStore />} />
                 {/* Master admin pages */}
                 <Route path="master" element={<MasterDashboard />} />

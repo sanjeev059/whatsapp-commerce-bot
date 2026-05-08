@@ -45,8 +45,20 @@ export default function ProductCard({ product, categoryId, subgroupId }) {
           </div>
         ) : null}
         <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="text-[15px] font-bold" data-testid={`product-price-${product.id}`}>
-            {formatINR(product.price)}
+          <div className="flex items-center gap-2">
+            <div className="text-[15px] font-bold" data-testid={`product-price-${product.id}`}>
+              {formatINR(product.price)}
+            </div>
+            {product.night_pricing && product.base_price && product.base_price !== product.price && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(167,139,250,0.16)", color: "#a78bfa" }}
+                data-testid={`product-night-badge-${product.id}`}
+                title={`Night price · base ${formatINR(product.base_price)}`}
+              >
+                NIGHT
+              </span>
+            )}
           </div>
 
           {qty === 0 ? (

@@ -1,0 +1,18 @@
+{
+  "short_name": "Local Commerce",
+  "name": "Local Commerce — Vendor Console",
+  "description": "Hyperlocal commerce SaaS — manage your store, orders, and products from anywhere.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": "/admin",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#22d27a",
+  "background_color": "#07080b"
+}

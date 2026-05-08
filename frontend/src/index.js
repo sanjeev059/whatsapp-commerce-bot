@@ -9,3 +9,12 @@ root.render(
     <App />
   </React.StrictMode>,
 );
+
+// Register service worker for PWA + Web Push (vendor admins).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/service-worker.js", { scope: "/" })
+      .catch((e) => console.warn("SW registration failed", e));
+  });
+}

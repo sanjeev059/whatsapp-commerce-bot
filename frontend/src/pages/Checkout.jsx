@@ -17,6 +17,7 @@ import {
   Smartphone,
   Copy,
   ShieldCheck,
+  Crosshair,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +43,35 @@ export default function Checkout() {
   const [paymentMode, setPaymentMode] = useState("upi");
   const [upiLast5, setUpiLast5] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [coords, setCoords] = useState(null); // {lat, lng}
+  const [locating, setLocating] = useState(false);
+
+  const captureLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Location not supported on this device");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        });
+        setLocating(false);
+        toast.success("Location captured");
+      },
+      (err) => {
+        setLocating(false);
+        toast.error(
+          err.code === 1
+            ? "Location permission denied"
+            : "Could not capture location"
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  };
 
   useEffect(() => {
     bindSlug(slug);
@@ -125,6 +155,8 @@ export default function Checkout() {
           customer_name: form.name,
           customer_phone: form.phone,
           delivery_address: form.address,
+          customer_lat: coords?.lat || null,
+          customer_lng: coords?.lng || null,
           notes: form.notes,
           payment_mode: paymentMode,
           upi_last5: paymentMode === "upi" ? upiLast5 : null,
@@ -139,7 +171,7 @@ export default function Checkout() {
           short_id: data.short_id,
           tracking_token: data.tracking_token,
           status: data.status,
-          total: totals.total,
+          total: data.total ?? totals.total,
           count: totals.count,
           payment_mode: paymentMode,
           customer: form,
@@ -239,6 +271,26 @@ export default function Checkout() {
               data-testid="checkout-input-address"
             />
           </FieldIcon>
+
+          <button
+            type="button"
+            onClick={captureLocation}
+            disabled={locating}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
+            style={{
+              background: coords ? "rgba(34,210,122,0.10)" : "var(--surface-2)",
+              border: `1px solid ${coords ? "rgba(34,210,122,0.35)" : "var(--border-soft)"}`,
+              color: coords ? "var(--accent)" : "var(--text-muted)",
+            }}
+            data-testid="capture-location-btn"
+          >
+            <Crosshair className={`w-3.5 h-3.5 ${locating ? "animate-spin" : ""}`} />
+            {locating
+              ? "Locating you…"
+              : coords
+              ? `Location captured · ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`
+              : "Share my live location (helps the vendor find you faster)"}
+          </button>
 
           <FieldIcon icon={<StickyNote className="w-4 h-4" />} multi>
             <textarea

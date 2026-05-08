@@ -3,6 +3,8 @@ import { Outlet, NavLink, useNavigate, Navigate, useLocation } from "react-route
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { api } from "@/lib/apiClient";
 import { useNewOrderAlerts } from "@/hooks/useNewOrderAlerts";
+import { subscribeVendorPush, isPushSupported, sendTestPush } from "@/lib/push";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   ListOrdered,
@@ -15,6 +17,7 @@ import {
   Crown,
   Bell,
   BellOff,
+  BellRing,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -46,6 +49,42 @@ export default function AdminLayout() {
   const { permission, requestPermission } = useNewOrderAlerts(pendingOrders, {
     enabled: isVendor,
   });
+
+  // Once permission is granted, register service worker & subscribe to web push
+  // so vendors receive new-order alerts even when this tab is closed.
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  useEffect(() => {
+    if (!isVendor || permission !== "granted" || !isPushSupported()) return;
+    let cancelled = false;
+    subscribeVendorPush()
+      .then((sub) => {
+        if (!cancelled && sub) setPushSubscribed(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isVendor, permission]);
+
+  const onTestPush = async () => {
+    try {
+      await sendTestPush();
+      toast.success("Test notification sent — check your device");
+    } catch {
+      toast.error("Could not send test push");
+    }
+  };
+
+  const enablePush = async () => {
+    const result = await requestPermission();
+    if (result === "granted") {
+      const sub = await subscribeVendorPush();
+      if (sub) {
+        setPushSubscribed(true);
+        toast.success("Push notifications enabled");
+      }
+    }
+  };
 
   if (user === null) {
     return (
@@ -238,14 +277,36 @@ export default function AdminLayout() {
             <Bell className="w-4 h-4 text-[#60a5fa] shrink-0" />
             <div className="flex-1 text-xs leading-relaxed">
               <span className="font-semibold text-white">Get instant alerts</span> for new orders —
-              we'll chime + show a notification while this tab is open.
+              chime + notification, even when this tab is closed.
             </div>
             <button
-              onClick={requestPermission}
+              onClick={enablePush}
               className="btn-primary !py-1.5 !px-3 text-xs shrink-0"
               data-testid="enable-notifications-btn"
             >
               Enable
+            </button>
+          </div>
+        )}
+        {isVendor && permission === "granted" && pushSubscribed && (
+          <div
+            className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-2 flex items-center gap-3 text-xs"
+            style={{
+              background: "rgba(34,210,122,0.06)",
+              border: "1px solid rgba(34,210,122,0.20)",
+            }}
+            data-testid="push-active-banner"
+          >
+            <BellRing className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+            <div className="flex-1 text-[var(--text-muted)]">
+              Push alerts active on this device. We'll ping you on every new order.
+            </div>
+            <button
+              onClick={onTestPush}
+              className="btn-ghost !py-1 !px-2 text-[11px] shrink-0"
+              data-testid="test-push-btn"
+            >
+              Send test
             </button>
           </div>
         )}

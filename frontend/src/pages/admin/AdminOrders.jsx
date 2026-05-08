@@ -15,6 +15,7 @@ import {
   Copy,
   CreditCard,
   ShieldCheck,
+  Map,
 } from "lucide-react";
 
 const FILTER_OPTIONS = [{ v: "", l: "All" }, ...STATUS_ORDER.map((k) => ({ v: k, l: STATUS_META[k].label }))];
@@ -275,6 +276,23 @@ function OrderDetailModal({ order, onClose, onStatus }) {
               }
             />
             <Row icon={<MapPin className="w-4 h-4" />} text={order.delivery_address} />
+            {order.customer_lat && order.customer_lng && (
+              <Row
+                icon={<Map className="w-4 h-4" />}
+                text={
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${order.customer_lat},${order.customer_lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--accent)] underline text-xs"
+                    data-testid="modal-map-link"
+                  >
+                    Open in Google Maps · {Number(order.customer_lat).toFixed(4)},{" "}
+                    {Number(order.customer_lng).toFixed(4)}
+                  </a>
+                }
+              />
+            )}
             {order.notes && <Row icon={<StickyNote className="w-4 h-4" />} text={order.notes} />}
             {trackingUrl && (
               <Row

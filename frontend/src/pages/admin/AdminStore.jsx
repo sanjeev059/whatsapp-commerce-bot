@@ -16,6 +16,8 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 export default function AdminStore() {
@@ -35,6 +37,11 @@ export default function AdminStore() {
           payment_qr_url: data.payment_qr_url || "",
           opening_time: data.opening_time || "10:00",
           closing_time: data.closing_time || "23:00",
+          night_pricing_enabled: !!data.night_pricing_enabled,
+          night_start: data.night_start || "22:00",
+          night_end: data.night_end || "06:00",
+          night_multiplier: data.night_multiplier || 1.10,
+          night_categories: data.night_categories || ["liquor"],
         });
       })
       .catch(() => toast.error("Could not load store"));
@@ -226,6 +233,9 @@ export default function AdminStore() {
         </button>
       </div>
 
+      {/* Day/Night dynamic pricing */}
+      <NightPricingCard form={form} setForm={setForm} onSave={save} saving={saving} />
+
       {/* Password change */}
       <PasswordChangeCard />
 
@@ -247,6 +257,136 @@ export default function AdminStore() {
     </div>
   );
 }
+
+function NightPricingCard({ form, setForm, onSave, saving }) {
+  const enabled = !!form.night_pricing_enabled;
+  const cats = form.night_categories || [];
+  const allCats = [
+    { id: "liquor", label: "🍻 Liquor" },
+    { id: "cigarettes", label: "🚬 Cigarettes" },
+    { id: "snacks", label: "🍟 Snacks" },
+    { id: "food", label: "🍔 Food" },
+  ];
+  const togglecat = (id) => {
+    setForm({
+      ...form,
+      night_categories: cats.includes(id) ? cats.filter((x) => x !== id) : [...cats, id],
+    });
+  };
+  const mult = Number(form.night_multiplier || 1);
+  const pct = Math.round((mult - 1) * 100);
+
+  return (
+    <div className="mt-6 surface p-4 md:p-5" data-testid="night-pricing-card">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Moon className="w-4 h-4 text-[#a78bfa]" />
+          <div className="text-base font-bold">Day / Night dynamic pricing</div>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-[var(--text-muted)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setForm({ ...form, night_pricing_enabled: e.target.checked })}
+            data-testid="night-pricing-toggle"
+          />
+          {enabled ? "On" : "Off"}
+        </label>
+      </div>
+      <p className="text-xs text-[var(--text-muted)] -mt-1 mb-3">
+        Apply a markup during the night window (IST) — e.g. +10% for liquor after 10 PM.
+      </p>
+
+      {enabled && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Night starts at" icon={<Sun className="w-4 h-4" />}>
+              <input
+                type="time"
+                className="input pl-10"
+                value={form.night_start}
+                onChange={(e) => setForm({ ...form, night_start: e.target.value })}
+                data-testid="night-start-input"
+              />
+            </Field>
+            <Field label="Night ends at" icon={<Sun className="w-4 h-4" />}>
+              <input
+                type="time"
+                className="input pl-10"
+                value={form.night_end}
+                onChange={(e) => setForm({ ...form, night_end: e.target.value })}
+                data-testid="night-end-input"
+              />
+            </Field>
+          </div>
+
+          <label className="block">
+            <span className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-semibold flex items-center justify-between">
+              <span>Markup multiplier</span>
+              <span className="text-white font-mono">
+                {mult.toFixed(2)}x · {pct >= 0 ? "+" : ""}
+                {pct}%
+              </span>
+            </span>
+            <input
+              type="range"
+              min="1.00"
+              max="2.00"
+              step="0.05"
+              value={mult}
+              onChange={(e) => setForm({ ...form, night_multiplier: parseFloat(e.target.value) })}
+              className="w-full mt-2 accent-[var(--accent)]"
+              data-testid="night-multiplier-input"
+            />
+            <div className="flex justify-between text-[10px] text-[var(--text-faint)] mt-1">
+              <span>1.00 (no markup)</span>
+              <span>2.00 (double)</span>
+            </div>
+          </label>
+
+          <div>
+            <span className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+              Apply to categories
+            </span>
+            <div className="flex flex-wrap gap-2 mt-2" data-testid="night-categories">
+              {allCats.map((c) => {
+                const on = cats.includes(c.id);
+                return (
+                  <button
+                    type="button"
+                    key={c.id}
+                    onClick={() => togglecat(c.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      on ? "border-transparent text-black" : "border-[var(--border)] text-[var(--text-muted)]"
+                    }`}
+                    style={
+                      on
+                        ? { background: "linear-gradient(135deg, var(--accent), var(--accent-2))" }
+                        : { background: "var(--surface-2)" }
+                    }
+                    data-testid={`night-cat-${c.id}`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={onSave}
+        disabled={saving}
+        className="btn-primary w-full text-sm mt-4"
+        data-testid="night-save-btn"
+      >
+        <Save className="w-4 h-4" /> {saving ? "Saving…" : "Save pricing rules"}
+      </button>
+    </div>
+  );
+}
+
 
 function PasswordChangeCard() {
   const [form, setForm] = useState({ current_password: "", new_password: "", confirm: "" });

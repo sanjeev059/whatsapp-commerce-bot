@@ -29,6 +29,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pywebpush import webpush, WebPushException
+import json as json_mod
+import asyncio
 
 from seed_data import seed_initial_catalog
 
@@ -77,6 +80,103 @@ def make_token(user: Dict[str, Any]) -> str:
 def slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return s[:48] or uuid.uuid4().hex[:8]
+
+
+# ==================== pricing ====================
+def _hhmm_to_minutes(s: Optional[str]) -> Optional[int]:
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        hh, mm = s.split(":")
+        return (int(hh) % 24) * 60 + (int(mm) % 60)
+    except Exception:
+        return None
+
+
+def is_night_active(vendor: Dict[str, Any], at: Optional[datetime] = None) -> bool:
+    """Whether the vendor's night-pricing window is currently active."""
+    if not vendor.get("night_pricing_enabled"):
+        return False
+    start = _hhmm_to_minutes(vendor.get("night_start"))
+    end = _hhmm_to_minutes(vendor.get("night_end"))
+    if start is None or end is None:
+        return False
+    at = at or datetime.now(timezone.utc)
+    # Use IST (UTC+5:30) — vendors are India-local
+    ist = at + timedelta(hours=5, minutes=30)
+    cur = ist.hour * 60 + ist.minute
+    if start == end:
+        return False
+    if start < end:
+        return start <= cur < end
+    # spans midnight (e.g. 22:00 → 06:00)
+    return cur >= start or cur < end
+
+
+def effective_price(base_price: float, vendor: Dict[str, Any], category_id: str,
+                    night_active: Optional[bool] = None) -> float:
+    """Compute the price to charge given vendor pricing rules."""
+    if night_active is None:
+        night_active = is_night_active(vendor)
+    if not night_active:
+        return round(float(base_price), 2)
+    cats = vendor.get("night_categories") or []
+    if cats and category_id not in cats:
+        return round(float(base_price), 2)
+    mult = float(vendor.get("night_multiplier") or 1.0)
+    return round(float(base_price) * mult, 2)
+
+
+# ==================== push (web-push / VAPID) ====================
+VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_PEM = os.environ.get("VAPID_PRIVATE_KEY_PEM", "").replace("\\n", "\n")
+VAPID_CONTACT = os.environ.get("VAPID_CONTACT_EMAIL", "mailto:admin@localcommerce.in")
+
+
+def _send_one_push(sub: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
+    """Send one web push. Returns endpoint to delete on 410/404."""
+    if not VAPID_PRIVATE_PEM:
+        return None
+    try:
+        webpush(
+            subscription_info=sub["subscription"],
+            data=json_mod.dumps(payload),
+            vapid_private_key=VAPID_PRIVATE_PEM,
+            vapid_claims={"sub": VAPID_CONTACT},
+            ttl=120,
+        )
+        return None
+    except WebPushException as e:
+        status_code = getattr(getattr(e, "response", None), "status_code", None)
+        if status_code in (404, 410):
+            return sub["subscription"].get("endpoint")
+        logger.warning("Push failed: %s", e)
+        return None
+    except Exception as e:
+        logger.warning("Push exception: %s", e)
+        return None
+
+
+async def push_to_vendor(vendor_id: str, payload: Dict[str, Any]) -> int:
+    """Best-effort fan-out push to all of a vendor's subscriptions."""
+    if not VAPID_PRIVATE_PEM:
+        return 0
+    cur = db.push_subscriptions.find({"vendor_id": vendor_id}, {"_id": 0})
+    subs = await cur.to_list(length=200)
+    if not subs:
+        return 0
+    loop = asyncio.get_event_loop()
+    sent = 0
+    stale_endpoints: List[str] = []
+    for s in subs:
+        ep = await loop.run_in_executor(None, _send_one_push, s, payload)
+        if ep:
+            stale_endpoints.append(ep)
+        else:
+            sent += 1
+    if stale_endpoints:
+        await db.push_subscriptions.delete_many({"subscription.endpoint": {"$in": stale_endpoints}})
+    return sent
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -157,6 +257,17 @@ class VendorUpdate(BaseModel):
     closing_time: Optional[str] = None  # "23:00"
     subscription_active: Optional[bool] = None
     subscription_expires_at: Optional[str] = None
+    # Day/night dynamic pricing
+    night_pricing_enabled: Optional[bool] = None
+    night_start: Optional[str] = None      # "22:00" (IST)
+    night_end: Optional[str] = None        # "06:00"
+    night_multiplier: Optional[float] = None  # e.g. 1.15
+    night_categories: Optional[List[str]] = None  # ["liquor", "cigarettes"]
+
+
+class PushSubscriptionIn(BaseModel):
+    subscription: Dict[str, Any]  # {endpoint, keys:{p256dh, auth}}
+    user_agent: Optional[str] = ""
 
 
 class ProductCreate(BaseModel):
@@ -213,6 +324,11 @@ class OrderStatusUpdate(BaseModel):
     status: str
 
 
+class BulkProductsIn(BaseModel):
+    products: List[ProductCreate]
+    replace_existing: bool = False  # if true, soft-delete current products first
+
+
 # ==================== public storefront ====================
 @api.get("/")
 async def root():
@@ -243,7 +359,15 @@ async def storefront(slug: str):
     ).to_list(2000)
 
     by_sub: Dict[str, List[Dict[str, Any]]] = {}
+    night_active = is_night_active(v)
     for p in products:
+        # Apply effective pricing for the customer view.
+        cat_id = next((s["category_id"] for s in subs if s["id"] == p["subgroup_id"]), "")
+        base = float(p["price"])
+        eff = effective_price(base, v, cat_id, night_active)
+        p["base_price"] = base
+        p["price"] = eff
+        p["night_pricing"] = night_active and eff != base
         by_sub.setdefault(p["subgroup_id"], []).append(p)
 
     cat_payload = []
@@ -262,6 +386,9 @@ async def storefront(slug: str):
         "available": v.get("store_status", "open") == "open",
         "reason": "Store currently closed" if v.get("store_status") == "closed" else None,
         "categories": cat_payload,
+        "night_pricing_active": night_active,
+        "night_multiplier": float(v.get("night_multiplier") or 1.0),
+        "night_categories": v.get("night_categories") or [],
     }
 
 
@@ -277,6 +404,11 @@ def _public_vendor(v: Dict[str, Any]) -> Dict[str, Any]:
         "opening_time": v.get("opening_time", ""),
         "closing_time": v.get("closing_time", ""),
     }
+
+
+@api.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    return {"public_key": VAPID_PUBLIC, "enabled": bool(VAPID_PUBLIC and VAPID_PRIVATE_PEM)}
 
 
 # ==================== orders (public POST + tracking GET) ====================
@@ -297,12 +429,33 @@ async def place_order(payload: OrderCreate):
         if not payload.upi_last5 or not re.fullmatch(r"\d{5}", payload.upi_last5):
             raise HTTPException(400, "Enter exactly 5 digits of UPI transaction ID")
 
-    # Liquor min ₹1000 (server-side enforcement)
-    liquor_total = sum(i.price * i.qty for i in payload.items if i.category_id == "liquor")
+    # Server-side authoritative pricing: ignore client `price`, look up the product
+    # and apply current vendor pricing rules.
+    pids = [i.product_id for i in payload.items]
+    db_products = {p["id"]: p async for p in db.products.find(
+        {"id": {"$in": pids}, "vendor_id": v["id"]}, {"_id": 0}
+    )}
+    night_active = is_night_active(v)
+    canonical_items: List[Dict[str, Any]] = []
+    for i in payload.items:
+        p = db_products.get(i.product_id)
+        if not p or not p.get("in_stock", True):
+            raise HTTPException(400, f"'{i.name}' is no longer available")
+        eff = effective_price(float(p["price"]), v, p.get("category_id", i.category_id), night_active)
+        canonical_items.append({
+            "product_id": i.product_id,
+            "name": p["name"],
+            "price": eff,
+            "qty": int(i.qty),
+            "category_id": p.get("category_id", i.category_id),
+        })
+
+    # Liquor min ₹1000 (server-side enforcement) — based on canonical pricing
+    liquor_total = sum(it["price"] * it["qty"] for it in canonical_items if it["category_id"] == "liquor")
     if liquor_total > 0 and liquor_total < 1000:
         raise HTTPException(400, "Liquor minimum order is ₹1000")
 
-    total = round(sum(i.price * i.qty for i in payload.items), 2)
+    total = round(sum(it["price"] * it["qty"] for it in canonical_items), 2)
 
     # Atomic per-vendor sequential counter
     seq_doc = await db.vendors.find_one_and_update(
@@ -328,14 +481,29 @@ async def place_order(payload: OrderCreate):
         "notes": (payload.notes or "").strip(),
         "payment_mode": payload.payment_mode,
         "upi_last5": payload.upi_last5,
-        "items": [i.model_dump() for i in payload.items],
+        "items": canonical_items,
         "total": total,
+        "night_pricing_applied": night_active and total != round(sum(i.price * i.qty for i in payload.items), 2),
         "status": initial_status,
         "status_history": [{"status": initial_status, "at": now_iso()}],
         "created_at": now_iso(),
     }
     await db.orders.insert_one(dict(order))
-    return {"short_id": short_id, "tracking_token": tracking_token, "status": initial_status}
+
+    # Fire push to vendor (best-effort, don't block on failure)
+    try:
+        await push_to_vendor(v["id"], {
+            "type": "new_order",
+            "short_id": short_id,
+            "total": total,
+            "customer": payload.customer_name.strip(),
+            "payment_mode": payload.payment_mode,
+            "vendor_slug": v["slug"],
+        })
+    except Exception as e:
+        logger.warning("push_to_vendor failed: %s", e)
+
+    return {"short_id": short_id, "tracking_token": tracking_token, "status": initial_status, "total": total}
 
 
 @api.get("/track/{token}")
@@ -659,6 +827,82 @@ async def vendor_categories(user=Depends(require_vendor)):
 @vendor_r.get("/subgroups")
 async def vendor_subgroups(user=Depends(require_vendor)):
     return await db.subgroups.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+
+
+# ==================== bulk products ====================
+@vendor_r.post("/products/bulk")
+async def vendor_bulk_products(payload: BulkProductsIn, user=Depends(require_vendor)):
+    """Bulk-import products. Each row is a ProductCreate; invalid rows are skipped and reported."""
+    valid_subs = {
+        s["id"]: s["category_id"]
+        for s in await db.subgroups.find({}, {"_id": 0}).to_list(200)
+    }
+    if payload.replace_existing:
+        await db.products.delete_many({"vendor_id": user["vendor_id"]})
+
+    created: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+    for idx, p in enumerate(payload.products):
+        if p.subgroup_id not in valid_subs or valid_subs[p.subgroup_id] != p.category_id:
+            errors.append({"row": idx + 1, "name": p.name, "error": "Invalid category/subgroup"})
+            continue
+        if not p.name or float(p.price) <= 0:
+            errors.append({"row": idx + 1, "name": p.name, "error": "Name + positive price required"})
+            continue
+        doc = {
+            "id": str(uuid.uuid4()),
+            "vendor_id": user["vendor_id"],
+            "sort_order": 0,
+            **p.model_dump(),
+        }
+        created.append(doc)
+    if created:
+        await db.products.insert_many([dict(d) for d in created])
+    return {"created": len(created), "errors": errors, "replace_existing": payload.replace_existing}
+
+
+# ==================== push subscriptions ====================
+@vendor_r.post("/push/subscribe")
+async def push_subscribe(payload: PushSubscriptionIn, user=Depends(require_vendor)):
+    endpoint = (payload.subscription or {}).get("endpoint")
+    if not endpoint:
+        raise HTTPException(400, "Missing endpoint in subscription")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": user["vendor_id"],
+        "user_id": user["id"],
+        "subscription": payload.subscription,
+        "user_agent": payload.user_agent or "",
+        "created_at": now_iso(),
+    }
+    # Upsert by endpoint to avoid duplicates per device
+    await db.push_subscriptions.update_one(
+        {"subscription.endpoint": endpoint},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@vendor_r.post("/push/unsubscribe")
+async def push_unsubscribe(payload: PushSubscriptionIn, user=Depends(require_vendor)):
+    endpoint = (payload.subscription or {}).get("endpoint")
+    if not endpoint:
+        return {"ok": True}
+    await db.push_subscriptions.delete_many({"subscription.endpoint": endpoint})
+    return {"ok": True}
+
+
+@vendor_r.post("/push/test")
+async def push_test(user=Depends(require_vendor)):
+    """Send a test push to all of this vendor's subscriptions."""
+    sent = await push_to_vendor(user["vendor_id"], {
+        "type": "test",
+        "short_id": "TEST",
+        "total": 0,
+        "customer": "Local Commerce",
+    })
+    return {"sent": sent}
 
 
 # Mount routers

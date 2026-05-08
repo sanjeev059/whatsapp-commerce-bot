@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import QuantityStepper from "@/components/QuantityStepper";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
+import { resolveUrl } from "@/lib/apiClient";
 import { CATEGORY_RULES } from "@/config";
 
 const CAT_LABELS = {
@@ -119,7 +120,7 @@ export default function Cart() {
                     data-testid={`cart-item-${it.id}`}
                   >
                     <img
-                      src={it.image}
+                      src={resolveUrl(it.image)}
                       alt={it.name}
                       className="w-16 h-16 rounded-xl object-cover"
                     />

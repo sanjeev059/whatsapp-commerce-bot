@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate, Navigate, useLocation } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
+import { api } from "@/lib/apiClient";
+import { useNewOrderAlerts } from "@/hooks/useNewOrderAlerts";
 import {
   LayoutDashboard,
   ListOrdered,
@@ -10,12 +13,39 @@ import {
   Store,
   Users,
   Crown,
+  Bell,
+  BellOff,
 } from "lucide-react";
 
 export default function AdminLayout() {
   const { user, logout } = useAdminAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const isMaster = user && user.role === "master_admin";
+  const isVendor = user && user.role === "vendor_admin";
+
+  // Poll active orders for vendors so we can chime on new ones
+  useEffect(() => {
+    if (!isVendor) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await api.get("/vendor/orders", { params: { limit: 30 } });
+        if (!cancelled) setPendingOrders(data);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isVendor]);
+
+  const { permission, requestPermission } = useNewOrderAlerts(pendingOrders, {
+    enabled: isVendor,
+  });
 
   if (user === null) {
     return (
@@ -30,7 +60,6 @@ export default function AdminLayout() {
   if (user === false) return <Navigate to="/admin/login" replace />;
 
   // Auto-redirect mismatched routes
-  const isMaster = user.role === "master_admin";
   const path = location.pathname;
   if (isMaster && !path.startsWith("/admin/master")) {
     return <Navigate to="/admin/master" replace />;
@@ -197,6 +226,44 @@ export default function AdminLayout() {
         className="flex-1 min-w-0 pt-16 md:pt-0 pb-20 md:pb-0 overflow-x-hidden"
         data-testid="admin-content"
       >
+        {isVendor && permission === "default" && (
+          <div
+            className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-3 flex items-center gap-3"
+            style={{
+              background: "rgba(96,165,250,0.08)",
+              border: "1px solid rgba(96,165,250,0.30)",
+            }}
+            data-testid="enable-notifications-banner"
+          >
+            <Bell className="w-4 h-4 text-[#60a5fa] shrink-0" />
+            <div className="flex-1 text-xs leading-relaxed">
+              <span className="font-semibold text-white">Get instant alerts</span> for new orders —
+              we'll chime + show a notification while this tab is open.
+            </div>
+            <button
+              onClick={requestPermission}
+              className="btn-primary !py-1.5 !px-3 text-xs shrink-0"
+              data-testid="enable-notifications-btn"
+            >
+              Enable
+            </button>
+          </div>
+        )}
+        {isVendor && permission === "denied" && (
+          <div
+            className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-2 flex items-center gap-3 text-xs"
+            style={{
+              background: "rgba(244,63,94,0.06)",
+              border: "1px solid rgba(244,63,94,0.20)",
+            }}
+            data-testid="notifications-denied-banner"
+          >
+            <BellOff className="w-3.5 h-3.5 text-[#f43f5e] shrink-0" />
+            <div className="text-[var(--text-muted)] leading-relaxed">
+              Browser notifications blocked. You'll still hear the chime when new orders come in.
+            </div>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

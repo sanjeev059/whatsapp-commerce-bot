@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/apiClient";
+import { resolveUrl } from "@/lib/apiClient";
 import { formatINR } from "@/lib/format";
 import { apiErrorMessage } from "@/lib/apiError";
 import { toast } from "sonner";
@@ -12,6 +13,7 @@ import {
   Search,
   RefreshCw,
 } from "lucide-react";
+import ImageUpload from "@/components/ImageUpload";
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([]);
@@ -155,7 +157,7 @@ export default function AdminProducts() {
             >
               <div className="flex items-center gap-3 min-w-0">
                 <img
-                  src={p.image}
+                  src={resolveUrl(p.image)}
                   alt={p.name}
                   className="w-11 h-11 rounded-lg object-cover shrink-0"
                   onError={(e) => {
@@ -397,13 +399,12 @@ function ProductFormModal({ product, categories, subgroups, onClose, onSaved }) 
               </select>
             </Field>
           </div>
-          <Field label="Image URL">
-            <input
-              className="input"
+          <Field label="Product image">
+            <ImageUpload
               value={form.image}
-              onChange={(e) => setForm({ ...form, image: e.target.value })}
-              placeholder="https://…"
-              data-testid="form-image"
+              onChange={(url) => setForm({ ...form, image: url })}
+              testId="form-image-upload"
+              placeholder="Square photo works best · max 3MB"
             />
           </Field>
           <Field label="Tag (e.g. Full Pack Only)">

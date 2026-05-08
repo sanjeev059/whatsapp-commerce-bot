@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration-4 testing. Backend: 49/49 pytest cases pass — 14 new (change-password + uploads + integration) plus 35 regression (test_multitenant.py). Frontend Playwright: verified password card present on /admin/store with working 'Current password is incorrect' toast, store-qr-upload present, /admin/products modal uses ImageUpload (no legacy URL input), AdminLayout polling auto-detects new orders without manual refresh (10→11 after 16s), master admin correctly does NOT see enable-notifications-banner, and resolveUrl helper resolves all relative /api/* image refs (0 found in storefront DOM). Found ONE real bug — see action_items.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/uploads/{id}", "issue": "Backend sets Cache-Control: public, max-age=86400 but the preview ingress (Cloudflare) overrides it to no-store, no-cache, must-revalidate. Image content + content-type round-trip is intact; only edge-cache TTL is lost in this preview env. Likely fine in production behind a different CDN."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminAuthContext (global axios 401 interceptor)",
+        "issue": "When the password-change endpoint returns 401 ('Current password is incorrect'), the interceptor logs the vendor admin out and redirects to /admin/login. Reproduced: open /admin/store → enter wrong current password → click Update password. The toast 'Current password is incorrect' flashes but the user is immediately booted to /admin/login, losing in-progress edits. Fix: skip session-kill on 401 from /api/auth/change-password (treat that endpoint's 401 as a normal validation error, not a session-expiry).",
+        "selector": "src/context/AdminAuthContext.jsx:46-59",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/backend/tests/test_multitenant.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "Fix global 401 interceptor in /app/frontend/src/context/AdminAuthContext.jsx so that 401 responses from /api/auth/change-password do NOT logout the user (keep them on /admin/store). Suggested: check err.config.url and skip setUser(false) for change-password endpoint.",
+    "(low) Notification.permission in headless Chromium defaults to 'denied', so Playwright always sees the 'denied' banner instead of the 'enable' banner. context.grant_permissions(['notifications']) does not flip permission to 'granted' for the in-page Notification API in current Playwright versions — assertion of the granted-path was therefore left as a manual-test note. Code path for permission==='default' could not be exercised end-to-end via headless Playwright, but the JSX guard, useNewOrderAlerts hook, and requestPermission wiring were code-reviewed and are correct."
+  ],
+  "critical_code_review_comments": [
+    "server.py /api/auth/change-password: order is correct — first validates length (400) then verifies current pw (401). bcrypt update is awaited and persisted. Good.",
+    "server.py /api/vendor/uploads/image: stores file bytes in Mongo (db.images) under random uuid4().hex id, includes vendor_id for audit, enforces ALLOWED_IMAGE_TYPES + MAX_UPLOAD_BYTES. Empty-body 400 is also handled. Good.",
+    "server.py /api/uploads/{file_id}: public — by design any holder of the random 32-hex id can fetch. Acceptable for QR/product images. Document that uploads are unauthenticated reads.",
+    "useNewOrderAlerts.js: correctly establishes baseline on first poll (seenRef initialised lazily with null sentinel) so the very first sync after vendor login does NOT trigger a chime. Verified by code review.",
+    "AdminLayout.jsx: polling interval 15s, only when isVendor — master is exempt. The banner JSX is gated by both isVendor && permission==='default'. Master correctly never sees it (verified).",
+    "ImageUpload.jsx: client-side guards (file.type startsWith image/, size>3MB toast) mirror server-side guards — defence in depth.",
+    "BUG: AdminAuthContext.jsx global axios 401 interceptor is too aggressive — logs the user out on ANY 401 including business-validation 401s like wrong-current-password. Fix: whitelist /auth/change-password (and any future intentionally-401 endpoints).",
+    "resolveUrl helper is correct and used in AdminProducts thumbnail, ImageUpload preview, ProductCard, Cart, Checkout. Verified storefront DOM has 0 relative /api/* image srcs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_features.py (new — 14 tests, all green)"
+  ],
+  "success_rate": {"backend": "100% (49/49)", "frontend": "All flows verified except notification 'enable' banner toggle, which is environmental"},
+  "test_credentials": "Master: master@localcommerce.in / master123. Vendor: sharma-wines@vendor.local / sharma-wines123. Vendor pw was rotated to TempPass_1234 mid-test then reverted; final state verified via login. /app/memory/test_credentials.md is consistent.",
+  "seed_data_creation": "1 TEST_AlertPoll COD order created via in-page fetch to verify the 15s polling. ~3-4 incidental TEST_* orders from other tests. No seeded products were modified. Vendor password reverted to canonical sharma-wines123.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-4 added: POST /api/auth/change-password, POST /api/vendor/uploads/image (multipart, 3MB max, allowlisted MIME), GET /api/uploads/{id} (public), <ImageUpload> component, useNewOrderAlerts hook, enable-notifications-banner + notifications-denied-banner in AdminLayout. Canonical regression suite is now: test_multitenant.py (35) + test_iter4_features.py (14) — run both. ONE open bug: AdminAuthContext.jsx 401 interceptor logs out on wrong-current-password — main agent must fix.",
+  "rca of the issue": "Wrong-current-password kicks user to /admin/login. RCA: AdminAuthContext.jsx (lines 46-59) installs a global axios response interceptor that calls setToken(null) + setUser(false) for ANY 401, regardless of endpoint. /api/auth/change-password returns 401 by design when current password is wrong — the interceptor cannot distinguish 'bad credentials submitted in-form' from 'token expired'. Mitigation: in the interceptor, exclude err.config.url ending with '/auth/change-password' (or similar in-form auth checks) from session-kill. Reproduction: login as sharma-wines vendor → /admin/store → fill 'Update password' card with wrong current value → submit → toast 'Current password is incorrect' flashes but user is redirected to /admin/login."
+}

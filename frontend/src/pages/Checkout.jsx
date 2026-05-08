@@ -5,7 +5,7 @@ import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 import { CATEGORY_RULES } from "@/config";
-import { api, fetchStorefront } from "@/lib/apiClient";
+import { api, fetchStorefront, resolveUrl } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
 import {
   Phone,
@@ -309,7 +309,7 @@ export default function Checkout() {
                 >
                   {vendor.payment_qr_url ? (
                     <img
-                      src={vendor.payment_qr_url}
+                      src={resolveUrl(vendor.payment_qr_url)}
                       alt="UPI QR"
                       className="w-[130px] h-[130px] object-contain"
                     />

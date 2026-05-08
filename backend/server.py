@@ -23,7 +23,8 @@ from typing import List, Optional, Dict, Any
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, status
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from starlette.middleware.cors import CORSMiddleware
@@ -127,6 +128,11 @@ ORDER_STATES = [
 class LoginIn(BaseModel):
     email: str
     password: str
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class VendorCreate(BaseModel):
@@ -369,6 +375,37 @@ async def me(user=Depends(auth_user)):
     return user
 
 
+@api.post("/auth/change-password")
+async def change_password(payload: PasswordChangeIn, user=Depends(auth_user)):
+    if len(payload.new_password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters")
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_pw(payload.current_password, full["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect")
+    await db.users.update_one(
+        {"id": user["id"]}, {"$set": {"password_hash": hash_pw(payload.new_password)}}
+    )
+    return {"ok": True}
+
+
+# ==================== Uploads ====================
+MAX_UPLOAD_BYTES = 3 * 1024 * 1024  # 3 MB
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+@api.get("/uploads/{file_id}")
+async def get_upload(file_id: str):
+    """Public: serve an uploaded image."""
+    img = await db.images.find_one({"id": file_id}, {"_id": 0})
+    if not img:
+        raise HTTPException(404, "Not found")
+    return Response(
+        content=img["data"],
+        media_type=img.get("content_type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # ==================== Master Admin ====================
 master = APIRouter(prefix="/master", dependencies=[Depends(require_master)])
 
@@ -490,6 +527,29 @@ vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 @vendor_r.get("/me")
 async def vendor_me(user=Depends(require_vendor)):
     return user["vendor"]
+
+
+@vendor_r.post("/uploads/image")
+async def vendor_upload_image(file: UploadFile = File(...), user=Depends(require_vendor)):
+    """Vendor uploads an image (product photo, payment QR, etc.)."""
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Image must be JPEG, PNG, WEBP, or GIF")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)")
+    if len(data) == 0:
+        raise HTTPException(400, "Empty file")
+    file_id = uuid.uuid4().hex
+    await db.images.insert_one({
+        "id": file_id,
+        "vendor_id": user["vendor_id"],
+        "content_type": file.content_type,
+        "data": data,
+        "size": len(data),
+        "filename": file.filename,
+        "created_at": now_iso(),
+    })
+    return {"id": file_id, "url": f"/api/uploads/{file_id}", "size": len(data)}
 
 
 @vendor_r.patch("/store")

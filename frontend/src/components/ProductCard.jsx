@@ -2,6 +2,7 @@ import { Plus } from "lucide-react";
 import QuantityStepper from "@/components/QuantityStepper";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
+import { resolveUrl } from "@/lib/apiClient";
 
 export default function ProductCard({ product, categoryId, subgroupId }) {
   const { add, setQty, getQty } = useCart();
@@ -14,7 +15,7 @@ export default function ProductCard({ product, categoryId, subgroupId }) {
     >
       <div className="relative shrink-0">
         <img
-          src={product.image}
+          src={resolveUrl(product.image)}
           alt={product.name}
           className="w-20 h-20 rounded-2xl object-cover"
           loading="lazy"

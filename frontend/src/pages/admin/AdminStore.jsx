@@ -2,17 +2,20 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
 import { toast } from "sonner";
+import ImageUpload from "@/components/ImageUpload";
 import {
   Power,
   Save,
   Store,
   Smartphone,
   Clock,
-  Image as ImageIcon,
   MapPin,
   ShieldCheck,
   Copy,
   ExternalLink,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export default function AdminStore() {
@@ -183,13 +186,12 @@ export default function AdminStore() {
           />
         </Field>
 
-        <Field label="Payment QR image URL (optional)" icon={<ImageIcon className="w-4 h-4" />}>
-          <input
-            className="input pl-10"
-            placeholder="https://… (uses auto-generated QR if blank)"
+        <Field label="Payment QR image (optional)">
+          <ImageUpload
             value={form.payment_qr_url}
-            onChange={(e) => setForm({ ...form, payment_qr_url: e.target.value })}
-            data-testid="store-qr-input"
+            onChange={(url) => setForm({ ...form, payment_qr_url: url })}
+            testId="store-qr-upload"
+            placeholder="Auto-generated QR will be used if blank"
           />
         </Field>
 
@@ -224,6 +226,9 @@ export default function AdminStore() {
         </button>
       </div>
 
+      {/* Password change */}
+      <PasswordChangeCard />
+
       {/* Compliance / license read-only */}
       <div className="mt-6 surface p-4">
         <div className="flex items-start gap-3">
@@ -240,6 +245,108 @@ export default function AdminStore() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PasswordChangeCard() {
+  const [form, setForm] = useState({ current_password: "", new_password: "", confirm: "" });
+  const [show, setShow] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (form.new_password.length < 8) {
+      toast.error("New password must be at least 8 characters");
+      return;
+    }
+    if (form.new_password !== form.confirm) {
+      toast.error("Passwords don't match");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post("/auth/change-password", {
+        current_password: form.current_password,
+        new_password: form.new_password,
+      });
+      toast.success("Password changed");
+      setForm({ current_password: "", new_password: "", confirm: "" });
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="mt-6 surface p-4 md:p-5 space-y-3" data-testid="password-card">
+      <div className="flex items-center gap-2 mb-1">
+        <Lock className="w-4 h-4 text-[var(--accent)]" />
+        <div className="text-base font-bold">Change password</div>
+      </div>
+      <p className="text-xs text-[var(--text-muted)] -mt-1">
+        Use at least 8 characters. You'll stay signed in on this device.
+      </p>
+
+      <PwField
+        label="Current password"
+        value={form.current_password}
+        show={show}
+        onChange={(v) => setForm({ ...form, current_password: v })}
+        testId="pw-current"
+        placeholder="Current password"
+      />
+      <PwField
+        label="New password"
+        value={form.new_password}
+        show={show}
+        onChange={(v) => setForm({ ...form, new_password: v })}
+        testId="pw-new"
+        placeholder="At least 8 characters"
+      />
+      <PwField
+        label="Confirm new password"
+        value={form.confirm}
+        show={show}
+        onChange={(v) => setForm({ ...form, confirm: v })}
+        testId="pw-confirm"
+        placeholder="Type it again"
+      />
+
+      <label className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-1">
+        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+        {show ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />} Show passwords
+      </label>
+
+      <button
+        type="submit"
+        disabled={submitting}
+        className="btn-primary w-full text-sm"
+        data-testid="pw-submit"
+      >
+        <Lock className="w-4 h-4" /> {submitting ? "Saving…" : "Update password"}
+      </button>
+    </form>
+  );
+}
+
+function PwField({ label, value, onChange, show, testId, placeholder }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+        {label}
+      </span>
+      <input
+        type={show ? "text" : "password"}
+        className="input mt-1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="new-password"
+        required
+        data-testid={testId}
+      />
+    </label>
   );
 }
 

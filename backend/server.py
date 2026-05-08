@@ -1,3 +1,13 @@
+"""Phase 1 multi-tenant SaaS backend.
+
+Three roles:
+  master_admin — onboards vendors, controls subscriptions
+  vendor_admin — manages their own store/orders/products (scoped to vendor_id)
+  customer    — public, no auth
+
+Customer flow (no WhatsApp):
+  scan QR → /store/<slug> → cart → checkout → UPI QR + last-5 verify → /track/<token>
+"""
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -5,149 +15,142 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
-import logging
+import re
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status
-from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from xml.sax.saxutils import escape as xml_escape
 
-from seed_data import SEED_CATEGORIES, SEED_SUBGROUPS, expanded_seed_products
-import whatsapp_service as wa
+from seed_data import seed_initial_catalog
 
-# ============== Setup ==============
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALG = "HS256"
-ACCESS_TOKEN_TTL_MIN = 60 * 12  # 12 hours
+ACCESS_TTL = 60 * 12  # minutes
 
-LOGIN_LOCKOUT_MAX_FAILS = 5
-LOGIN_LOCKOUT_MINUTES = 15
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("server")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-app = FastAPI(title="Hyperlocal Commerce API")
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="Local Commerce SaaS API", version="3.0")
+api = APIRouter(prefix="/api")
 
 
-# ============== Helpers ==============
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
+# ==================== utils ====================
 def now_iso() -> str:
-    return now_utc().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+def hash_pw(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
+def verify_pw(pw: str, h: str) -> bool:
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        return bcrypt.checkpw(pw.encode(), h.encode())
     except Exception:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def make_token(user: Dict[str, Any]) -> str:
     payload = {
-        "sub": user_id,
-        "email": email,
-        "role": role,
-        "exp": now_utc() + timedelta(minutes=ACCESS_TOKEN_TTL_MIN),
-        "type": "access",
+        "sub": user["id"],
+        "email": user["email"],
+        "role": user["role"],
+        "vendor_id": user.get("vendor_id"),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TTL),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-bearer_scheme = HTTPBearer(auto_error=False)
+def slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return s[:48] or uuid.uuid4().hex[:8]
 
 
-async def get_current_admin(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-) -> Dict[str, Any]:
-    if not creds or not creds.credentials:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+bearer = HTTPBearer(auto_error=False)
+
+
+async def auth_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> Dict[str, Any]:
+    if not creds:
+        raise HTTPException(401, "Not authenticated")
     try:
         payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALG])
-        if payload.get("type") != "access":
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-        if user.get("role") != "admin":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin only")
+            raise HTTPException(401, "User not found")
         return user
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired")
+        raise HTTPException(401, "Token expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+        raise HTTPException(401, "Invalid token")
 
 
-# ============== Models ==============
+async def require_master(user=Depends(auth_user)):
+    if user.get("role") != "master_admin":
+        raise HTTPException(403, "Master admin only")
+    return user
+
+
+async def require_vendor(user=Depends(auth_user)):
+    if user.get("role") != "vendor_admin" or not user.get("vendor_id"):
+        raise HTTPException(403, "Vendor admin only")
+    vendor = await db.vendors.find_one({"id": user["vendor_id"]}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    user["vendor"] = vendor
+    return user
+
+
+# ==================== models ====================
+ORDER_STATES = [
+    "payment_verification_pending",
+    "payment_verified",
+    "accepted",
+    "out_for_delivery",
+    "delivered",
+    "rejected",
+    "cancelled",
+]
+
+
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
-class LoginOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: Dict[str, Any]
-
-
-class Category(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
+class VendorCreate(BaseModel):
     name: str
-    tagline: str = ""
-    icon: str = ""
-    image: str = ""
-    min_order: int = 0
-    full_pack_only: bool = False
-    sort_order: int = 0
+    slug: Optional[str] = None
+    owner_name: str
+    owner_phone: str
+    address: str = ""
+    upi_id: str = ""
+    subscription_expires_at: Optional[str] = None
+    license_info: str = ""
+    accepts_tos: bool
 
 
-class Subgroup(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    category_id: str
-    name: str
-    sort_order: int = 0
-
-
-class SubgroupCreate(BaseModel):
-    category_id: str
-    name: str
-    sort_order: int = 0
-
-
-class Product(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    category_id: str
-    subgroup_id: str
-    name: str
-    price: float
-    image: str = ""
-    unit: str = ""
-    tag: str = ""
-    description: str = ""
-    in_stock: bool = True
-    sort_order: int = 0
+class VendorUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    upi_id: Optional[str] = None
+    payment_qr_url: Optional[str] = None
+    store_status: Optional[str] = None  # open | closed
+    opening_time: Optional[str] = None  # "10:00"
+    closing_time: Optional[str] = None  # "23:00"
+    subscription_active: Optional[bool] = None
+    subscription_expires_at: Optional[str] = None
 
 
 class ProductCreate(BaseModel):
@@ -170,11 +173,10 @@ class ProductUpdate(BaseModel):
     image: Optional[str] = None
     unit: Optional[str] = None
     tag: Optional[str] = None
-    description: Optional[str] = None
     in_stock: Optional[bool] = None
 
 
-class OrderItem(BaseModel):
+class OrderItemIn(BaseModel):
     product_id: str
     name: str
     price: float
@@ -183,552 +185,341 @@ class OrderItem(BaseModel):
 
 
 class OrderCreate(BaseModel):
+    vendor_slug: str
     customer_name: str
     customer_phone: str
     delivery_address: str
+    customer_lat: Optional[float] = None
+    customer_lng: Optional[float] = None
     notes: str = ""
-    payment_mode: str = "Cash on Delivery"
-    items: List[OrderItem]
+    payment_mode: str = "upi"  # upi | cod
+    upi_last5: Optional[str] = None
+    items: List[OrderItemIn]
 
-
-class Order(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    short_id: str
-    customer_name: str
-    customer_phone: str
-    delivery_address: str
-    notes: str = ""
-    payment_mode: str = "Cash on Delivery"
-    items: List[OrderItem]
-    total: float
-    status: str = "placed"
-    created_at: str
+    @field_validator("upi_last5")
+    @classmethod
+    def validate_last5(cls, v, info):
+        # If payment_mode is upi, must be exactly 5 digits
+        return v
 
 
 class OrderStatusUpdate(BaseModel):
     status: str
 
 
-ALLOWED_STATUSES = {"placed", "preparing", "out_for_delivery", "delivered", "cancelled"}
-
-
-# ============== WhatsApp Bot Conversation State Machine ==============
-def _fmt_inr(p) -> str:
-    p = float(p)
-    return str(int(p)) if p.is_integer() else f"{p:.2f}"
-
-
-async def _get_conv(sender: str) -> Dict[str, Any]:
-    conv = await db.conversations.find_one({"sender": sender}, {"_id": 0})
-    if not conv:
-        conv = {
-            "sender": sender,
-            "state": "start",
-            "selected_category_id": None,
-            "selected_subgroup_id": None,
-            "cart": [],
-            "draft_address": None,
-            "draft_name": None,
-            "updated_at": now_iso(),
-        }
-        await db.conversations.insert_one(dict(conv))
-    return conv
-
-
-async def _save_conv(conv: Dict[str, Any]) -> None:
-    conv["updated_at"] = now_iso()
-    payload = {k: v for k, v in conv.items() if k != "_id"}
-    await db.conversations.update_one(
-        {"sender": conv["sender"]}, {"$set": payload}, upsert=True
-    )
-
-
-def _help_text() -> str:
-    return (
-        "*Commands:*\n"
-        "• *menu* — show categories\n"
-        "• *cart* — view cart\n"
-        "• *checkout* — place order\n"
-        "• *clear* — empty cart\n"
-        "• *help* — this help"
-    )
-
-
-async def _build_main_menu(sender: str) -> str:
-    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
-    if not cats:
-        return "Welcome! Catalog is empty right now. Try again in a bit."
-    vendor_name = os.environ.get("VENDOR_NAME", "Demo Store")
-    sf = os.environ.get("STOREFRONT_URL", "").strip()
-    lines = [f"👋 *Welcome to {vendor_name}!*", "", "Hungry or thirsty? You're in the right place 🍻🍔"]
-    if sf:
-        lines += [
-            "",
-            "🌐 *Tap to browse our full menu:*",
-            sf,
-            "",
-            "_(or order right here in chat — see options below)_",
-            "",
-        ]
-    else:
-        lines.append("")
-    lines.append("*Categories:*")
-    for i, c in enumerate(cats, 1):
-        lines.append(f"{i}. {c.get('icon', '')} {c['name']}".strip())
-    lines += ["", "_Reply with a number to order via chat._"]
-    return "\n".join(lines)
-
-
-async def _build_subgroup_menu(category_id: str) -> str:
-    cat = await db.categories.find_one({"id": category_id}, {"_id": 0})
-    subs = (
-        await db.subgroups.find({"category_id": category_id}, {"_id": 0})
-        .sort("sort_order", 1)
-        .to_list(50)
-    )
-    if not cat or not subs:
-        return "Category not found. Type *menu* to start over."
-    lines = [f"*{cat.get('icon','')} {cat['name']}*".strip(), ""]
-    for i, s in enumerate(subs, 1):
-        lines.append(f"{i}. {s['name']}")
-    if cat["id"] == "cigarettes":
-        lines += ["", "⚠️ _Full Pack Only_"]
-    if cat["id"] == "liquor":
-        lines += ["", f"_Liquor minimum order ₹{cat.get('min_order', 1000)}_"]
-    lines += ["", "_Reply with a number, or *menu* to go back._"]
-    return "\n".join(lines)
-
-
-async def _build_product_list(subgroup_id: str) -> str:
-    sub = await db.subgroups.find_one({"id": subgroup_id}, {"_id": 0})
-    products = (
-        await db.products.find(
-            {"subgroup_id": subgroup_id, "in_stock": True}, {"_id": 0}
-        )
-        .sort("sort_order", 1)
-        .to_list(200)
-    )
-    if not sub:
-        return "Subgroup not found. Type *menu* to start over."
-    if not products:
-        return f"No products in {sub['name']} right now.\nType *menu* to go back."
-    lines = [f"*{sub['name']}*", ""]
-    for i, p in enumerate(products, 1):
-        line = f"{i}. {p['name']} — ₹{_fmt_inr(p['price'])}"
-        if p.get("unit"):
-            line += f" _({p['unit']})_"
-        lines.append(line)
-    lines += [
-        "",
-        "_Reply with the product number to add to cart._",
-        "_Type *menu* to go back, *cart* to view cart._",
-    ]
-    return "\n".join(lines)
-
-
-def _cart_summary(cart: List[Dict[str, Any]]) -> str:
-    if not cart:
-        return "Your cart is empty.\n\nType *menu* to start shopping."
-    lines = ["🛒 *Your Cart*", ""]
-    total = 0.0
-    for it in cart:
-        line_total = it["price"] * it["qty"]
-        total += line_total
-        lines.append(f"• {it['name']} x{it['qty']} — ₹{_fmt_inr(line_total)}")
-    lines += [
-        "",
-        f"*Total: ₹{_fmt_inr(total)}*",
-        "",
-        "Type *checkout* to confirm or *menu* to add more.",
-    ]
-    return "\n".join(lines)
-
-
-async def whatsapp_handle(sender: str, body_raw: str) -> str:
-    """Drive a per-customer state machine over WhatsApp.
-
-    `sender` is what Twilio passes (e.g. 'whatsapp:+919876543210').
-    """
-    body = (body_raw or "").strip()
-    body_lower = body.lower()
-    conv = await _get_conv(sender)
-
-    # Global commands ------------------------------------------------------
-    if body_lower in {"hi", "hello", "hey", "menu", "start", "/start", "main"}:
-        conv["state"] = "category"
-        conv["selected_category_id"] = None
-        conv["selected_subgroup_id"] = None
-        await _save_conv(conv)
-        return await _build_main_menu(sender)
-
-    if body_lower in {"help", "?"}:
-        return _help_text()
-
-    if body_lower in {"cart", "view cart"}:
-        return _cart_summary(conv.get("cart", []))
-
-    if body_lower in {"clear", "clear cart", "empty", "empty cart"}:
-        conv["cart"] = []
-        conv["state"] = "start"
-        await _save_conv(conv)
-        return "Cart cleared. Type *menu* to start over."
-
-    # Begin checkout: collect address ------------------------------------
-    if body_lower in {"checkout", "confirm", "place order"} and conv.get("cart"):
-        cart_items = conv["cart"]
-        liquor_total = sum(
-            i["price"] * i["qty"]
-            for i in cart_items
-            if i.get("category_id") == "liquor"
-        )
-        if liquor_total > 0 and liquor_total < 1000:
-            short = 1000 - liquor_total
-            return (
-                f"⚠️ Liquor minimum order is ₹1000.\n"
-                f"Add ₹{_fmt_inr(short)} more to checkout.\n\n"
-                f"Type *menu* to add more."
-            )
-        conv["state"] = "awaiting_address"
-        await _save_conv(conv)
-        return "📍 Please share your *delivery address* (flat, building, area)."
-
-    state = conv.get("state", "start")
-
-    # State: collecting address ------------------------------------------
-    if state == "awaiting_address":
-        if len(body) < 8:
-            return "That looks too short. Please share a complete address."
-        conv["draft_address"] = body
-        conv["state"] = "awaiting_name"
-        await _save_conv(conv)
-        return "👤 Got it! What's your *name*?"
-
-    # State: collecting name → place order -------------------------------
-    if state == "awaiting_name":
-        if len(body) < 2:
-            return "Please share your name (at least 2 characters)."
-        conv["draft_name"] = body
-        cart_items = conv.get("cart", [])
-        if not cart_items:
-            conv["state"] = "start"
-            await _save_conv(conv)
-            return "Your cart is empty. Type *menu* to start."
-        # Place order
-        total = round(sum(i["price"] * i["qty"] for i in cart_items), 2)
-        new_id = str(uuid.uuid4())
-        short_id = "LC" + new_id[:6].upper()
-        # Extract clean phone from sender (e.g. 'whatsapp:+919...' -> '+919...')
-        phone = sender.split(":", 1)[-1].strip() if ":" in sender else sender
-        order = {
-            "id": new_id,
-            "short_id": short_id,
-            "customer_name": conv["draft_name"],
-            "customer_phone": phone,
-            "delivery_address": conv["draft_address"] or "",
-            "notes": "Placed via WhatsApp bot",
-            "payment_mode": "Cash on Delivery",
-            "items": [
-                {
-                    "product_id": i["product_id"],
-                    "name": i["name"],
-                    "price": i["price"],
-                    "qty": i["qty"],
-                    "category_id": i["category_id"],
-                }
-                for i in cart_items
-            ],
-            "total": total,
-            "status": "placed",
-            "created_at": now_iso(),
-        }
-        await db.orders.insert_one(dict(order))
-        # Notify vendor (customer is the sender — they'll see this reply directly)
-        vendor_to = os.environ.get("VENDOR_WHATSAPP_TO", "").strip()
-        if vendor_to:
-            wa.send(vendor_to, wa.order_placed_to_vendor(order))
-        # Reset conversation
-        conv["cart"] = []
-        conv["state"] = "start"
-        conv["draft_address"] = None
-        conv["draft_name"] = None
-        conv["selected_category_id"] = None
-        conv["selected_subgroup_id"] = None
-        await _save_conv(conv)
-        return (
-            f"✅ *Order Placed!*\n\n"
-            f"Order ID: *{short_id}*\n"
-            f"Total: *₹{_fmt_inr(total)}*\n\n"
-            f"We'll deliver soon. Type *menu* to shop more."
-        )
-
-    # State: pick category -----------------------------------------------
-    if state in {"start", "category"}:
-        if body.isdigit():
-            idx = int(body) - 1
-            cats = (
-                await db.categories.find({}, {"_id": 0})
-                .sort("sort_order", 1)
-                .to_list(50)
-            )
-            if 0 <= idx < len(cats):
-                cat = cats[idx]
-                conv["selected_category_id"] = cat["id"]
-                # If only one subgroup, jump to products
-                subs = (
-                    await db.subgroups.find(
-                        {"category_id": cat["id"]}, {"_id": 0}
-                    )
-                    .sort("sort_order", 1)
-                    .to_list(50)
-                )
-                if len(subs) == 1:
-                    conv["selected_subgroup_id"] = subs[0]["id"]
-                    conv["state"] = "product"
-                    await _save_conv(conv)
-                    return await _build_product_list(subs[0]["id"])
-                conv["state"] = "subgroup"
-                await _save_conv(conv)
-                return await _build_subgroup_menu(cat["id"])
-            return "Invalid option. Reply with a number from the menu, or type *menu*."
-        return "Type *hi* or *menu* to begin."
-
-    # State: pick subgroup -----------------------------------------------
-    if state == "subgroup":
-        if not body.isdigit():
-            return "Reply with the *number* of the subgroup, or type *menu*."
-        idx = int(body) - 1
-        subs = (
-            await db.subgroups.find(
-                {"category_id": conv["selected_category_id"]}, {"_id": 0}
-            )
-            .sort("sort_order", 1)
-            .to_list(50)
-        )
-        if not (0 <= idx < len(subs)):
-            return "Invalid option. Type *menu* to start over."
-        conv["selected_subgroup_id"] = subs[idx]["id"]
-        conv["state"] = "product"
-        await _save_conv(conv)
-        return await _build_product_list(subs[idx]["id"])
-
-    # State: pick product ------------------------------------------------
-    if state == "product":
-        sub_id = conv.get("selected_subgroup_id")
-        products = (
-            await db.products.find(
-                {"subgroup_id": sub_id, "in_stock": True}, {"_id": 0}
-            )
-            .sort("sort_order", 1)
-            .to_list(200)
-        ) if sub_id else []
-        chosen = None
-        if body.isdigit():
-            idx = int(body) - 1
-            if 0 <= idx < len(products):
-                chosen = products[idx]
-        else:
-            for p in products:
-                if (
-                    p["name"].lower() == body_lower
-                    or body_lower in p["name"].lower()
-                ):
-                    chosen = p
-                    break
-        if not chosen:
-            return "Product not found. Reply with the number, or type *menu*."
-
-        cart = conv.get("cart", [])
-        existing = next((c for c in cart if c["product_id"] == chosen["id"]), None)
-        if existing:
-            existing["qty"] += 1
-        else:
-            cart.append(
-                {
-                    "product_id": chosen["id"],
-                    "name": chosen["name"],
-                    "price": chosen["price"],
-                    "qty": 1,
-                    "category_id": chosen["category_id"],
-                    "subgroup_id": chosen["subgroup_id"],
-                }
-            )
-        conv["cart"] = cart
-        await _save_conv(conv)
-        total = sum(i["price"] * i["qty"] for i in cart)
-        return (
-            f"✅ Added *{chosen['name']}* 🛒\n"
-            f"Cart total: ₹{_fmt_inr(total)}\n\n"
-            f"Reply with another product number to add more, "
-            f"*cart* to view, *checkout* to place order, or *menu* for categories."
-        )
-
-    return "Type *hi* or *menu* to start."
-
-
-@api_router.post("/webhook")
-async def twilio_webhook(request: Request):
-    """Twilio Sandbox WhatsApp webhook. Returns TwiML."""
-    form = await request.form()
-    body = form.get("Body", "")
-    sender = form.get("From", "unknown")
-    logger.info(f"WhatsApp <- {sender}: {body!r}")
-    try:
-        reply = await whatsapp_handle(sender, body)
-    except Exception as e:
-        logger.exception(f"webhook error: {e}")
-        reply = "⚠️ Something went wrong. Please type *menu* to start over."
-    twiml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        f"<Response><Message>{xml_escape(reply)}</Message></Response>"
-    )
-    return Response(content=twiml, media_type="application/xml")
-
-
-
-
-# ============== Public Routes ==============
-@api_router.get("/")
+# ==================== public storefront ====================
+@api.get("/")
 async def root():
-    return {"message": "Hyperlocal Commerce API", "version": "2.1"}
+    return {"app": os.environ.get("PLATFORM_NAME", "Local Commerce"), "version": "3.0"}
 
 
-@api_router.get("/vendor")
-async def vendor_info():
-    """Public vendor info used by the storefront (UPI/QR, name, WhatsApp)."""
-    return {
-        "name": os.environ.get("VENDOR_NAME", "Demo Store"),
-        "upi_id": os.environ.get("VENDOR_UPI_ID", ""),
-        "whatsapp": os.environ.get("VENDOR_WHATSAPP_TO", ""),
-    }
+@api.get("/storefront/{slug}")
+async def storefront(slug: str):
+    """Public catalog for one vendor — used by customer storefront."""
+    v = await db.vendors.find_one({"slug": slug}, {"_id": 0, "users": 0})
+    if not v:
+        raise HTTPException(404, "Store not found")
 
+    # Check subscription/availability gates
+    sub_active = v.get("subscription_active", True)
+    if not sub_active:
+        return {
+            "vendor": _public_vendor(v),
+            "available": False,
+            "reason": "Store temporarily unavailable",
+            "categories": [],
+        }
 
-@api_router.get("/catalog")
-async def get_catalog():
-    """Public catalog grouped for the storefront UI."""
-    categories = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
-    subgroups = await db.subgroups.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
-    products = await db.products.find({"in_stock": True}, {"_id": 0}).to_list(2000)
+    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
+    subs = await db.subgroups.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    products = await db.products.find(
+        {"vendor_id": v["id"], "in_stock": True}, {"_id": 0}
+    ).to_list(2000)
 
-    products_by_sub: Dict[str, List[Dict[str, Any]]] = {}
+    by_sub: Dict[str, List[Dict[str, Any]]] = {}
     for p in products:
-        products_by_sub.setdefault(p["subgroup_id"], []).append(p)
+        by_sub.setdefault(p["subgroup_id"], []).append(p)
 
-    out = []
-    for cat in categories:
-        cat_subs = [s for s in subgroups if s["category_id"] == cat["id"]]
-        out.append({
-            **cat,
+    cat_payload = []
+    for c in cats:
+        cat_subs = [s for s in subs if s["category_id"] == c["id"]]
+        cat_payload.append({
+            **c,
             "subgroups": [
-                {
-                    "id": s["id"],
-                    "name": s["name"],
-                    "products": products_by_sub.get(s["id"], []),
-                }
+                {"id": s["id"], "name": s["name"], "products": by_sub.get(s["id"], [])}
                 for s in cat_subs
             ],
         })
 
-    # Maintain backward-compat shape: { "categories": [...] }
-    return {"categories": out}
+    return {
+        "vendor": _public_vendor(v),
+        "available": v.get("store_status", "open") == "open",
+        "reason": "Store currently closed" if v.get("store_status") == "closed" else None,
+        "categories": cat_payload,
+    }
 
 
-@api_router.post("/orders", response_model=Order)
+def _public_vendor(v: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": v["id"],
+        "slug": v["slug"],
+        "name": v["name"],
+        "address": v.get("address", ""),
+        "upi_id": v.get("upi_id", ""),
+        "payment_qr_url": v.get("payment_qr_url", ""),
+        "store_status": v.get("store_status", "open"),
+        "opening_time": v.get("opening_time", ""),
+        "closing_time": v.get("closing_time", ""),
+    }
+
+
+# ==================== orders (public POST + tracking GET) ====================
+@api.post("/orders")
 async def place_order(payload: OrderCreate):
-    """Customer-facing endpoint: persists the order, then frontend opens wa.me link."""
+    v = await db.vendors.find_one({"slug": payload.vendor_slug}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    if not v.get("subscription_active", True):
+        raise HTTPException(403, "Store temporarily unavailable")
+    if v.get("store_status", "open") != "open":
+        raise HTTPException(403, "Store currently closed")
     if not payload.items:
         raise HTTPException(400, "Cart is empty")
 
-    total = round(sum(i.price * i.qty for i in payload.items), 2)
+    # UPI verification gate
+    if payload.payment_mode == "upi":
+        if not payload.upi_last5 or not re.fullmatch(r"\d{5}", payload.upi_last5):
+            raise HTTPException(400, "Enter exactly 5 digits of UPI transaction ID")
 
-    # Liquor minimum rule (server-side enforcement)
+    # Liquor min ₹1000 (server-side enforcement)
     liquor_total = sum(i.price * i.qty for i in payload.items if i.category_id == "liquor")
     if liquor_total > 0 and liquor_total < 1000:
         raise HTTPException(400, "Liquor minimum order is ₹1000")
 
+    total = round(sum(i.price * i.qty for i in payload.items), 2)
+
+    # Atomic per-vendor sequential counter
+    seq_doc = await db.vendors.find_one_and_update(
+        {"id": v["id"]}, {"$inc": {"next_order_seq": 1}}, return_document=True
+    )
+    seq = (seq_doc or {}).get("next_order_seq", 1)
+    short_id = f"ORD-{1000 + seq}"
+
     new_id = str(uuid.uuid4())
-    short_id = "LC" + new_id[:6].upper()
+    tracking_token = uuid.uuid4().hex[:16]
+    initial_status = "payment_verification_pending" if payload.payment_mode == "upi" else "accepted"
+
     order = {
         "id": new_id,
         "short_id": short_id,
+        "tracking_token": tracking_token,
+        "vendor_id": v["id"],
         "customer_name": payload.customer_name.strip(),
         "customer_phone": payload.customer_phone.strip(),
         "delivery_address": payload.delivery_address.strip(),
+        "customer_lat": payload.customer_lat,
+        "customer_lng": payload.customer_lng,
         "notes": (payload.notes or "").strip(),
-        "payment_mode": (payload.payment_mode or "Cash on Delivery").strip(),
+        "payment_mode": payload.payment_mode,
+        "upi_last5": payload.upi_last5,
         "items": [i.model_dump() for i in payload.items],
         "total": total,
-        "status": "placed",
+        "status": initial_status,
+        "status_history": [{"status": initial_status, "at": now_iso()}],
         "created_at": now_iso(),
     }
     await db.orders.insert_one(dict(order))
-
-    # Fire WhatsApp notifications (non-blocking — best effort)
-    vendor_to = os.environ.get("VENDOR_WHATSAPP_TO", "").strip()
-    if vendor_to:
-        wa.send(vendor_to, wa.order_placed_to_vendor(order))
-    if order["customer_phone"]:
-        wa.send(order["customer_phone"], wa.order_placed_to_customer(order))
-
-    return Order(**order)
+    return {"short_id": short_id, "tracking_token": tracking_token, "status": initial_status}
 
 
-# ============== Auth ==============
-@api_router.post("/auth/login", response_model=LoginOut)
-async def login(payload: LoginIn, request: Request):
+@api.get("/track/{token}")
+async def track_order(token: str):
+    o = await db.orders.find_one({"tracking_token": token}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    v = await db.vendors.find_one({"id": o["vendor_id"]}, {"_id": 0})
+    return {
+        "short_id": o["short_id"],
+        "status": o["status"],
+        "status_history": o.get("status_history", []),
+        "total": o["total"],
+        "items": o["items"],
+        "delivery_address": o["delivery_address"],
+        "customer_name": o["customer_name"],
+        "payment_mode": o["payment_mode"],
+        "vendor": _public_vendor(v) if v else None,
+        "created_at": o["created_at"],
+    }
+
+
+# ==================== auth ====================
+@api.post("/auth/login")
+async def login(payload: LoginIn):
     email = payload.email.strip().lower()
-    ip = request.client.host if request.client else "unknown"
-    identifier = f"{ip}:{email}"
-
-    # Brute force protection
-    rec = await db.login_attempts.find_one({"identifier": identifier}, {"_id": 0})
-    if rec and rec.get("locked_until"):
-        locked_until = datetime.fromisoformat(rec["locked_until"])
-        if locked_until > now_utc():
-            raise HTTPException(429, "Too many failed attempts. Try again later.")
-
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        # Record failure
-        fails = (rec or {}).get("fails", 0) + 1
-        update = {"identifier": identifier, "fails": fails, "updated_at": now_iso()}
-        if fails >= LOGIN_LOCKOUT_MAX_FAILS:
-            update["locked_until"] = (now_utc() + timedelta(minutes=LOGIN_LOCKOUT_MINUTES)).isoformat()
-            update["fails"] = 0
-        await db.login_attempts.update_one({"identifier": identifier}, {"$set": update}, upsert=True)
+    if not user or not verify_pw(payload.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
-
-    # Success: clear attempts
-    await db.login_attempts.delete_one({"identifier": identifier})
-
-    token = create_access_token(user["id"], user["email"], user.get("role", "admin"))
-    safe_user = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
-    return LoginOut(access_token=token, user=safe_user)
+    token = make_token(user)
+    safe = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
+    return {"access_token": token, "token_type": "bearer", "user": safe}
 
 
-@api_router.get("/auth/me")
-async def get_me(admin=Depends(get_current_admin)):
-    return admin
+@api.get("/auth/me")
+async def me(user=Depends(auth_user)):
+    return user
 
 
-# ============== Admin: Orders ==============
-admin_router = APIRouter(prefix="/admin", dependencies=[Depends(get_current_admin)])
+# ==================== Master Admin ====================
+master = APIRouter(prefix="/master", dependencies=[Depends(require_master)])
 
 
-@admin_router.get("/stats")
-async def stats():
-    today_start = now_utc().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+@master.get("/stats")
+async def master_stats():
+    vendors_total = await db.vendors.count_documents({})
+    vendors_active = await db.vendors.count_documents({"subscription_active": True})
+    orders_total = await db.orders.count_documents({})
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    orders_today = await db.orders.count_documents({"created_at": {"$gte": today_start}})
+    pipeline = [{"$group": {"_id": None, "gmv": {"$sum": "$total"}}}]
+    gmv_doc = await db.orders.aggregate(pipeline).to_list(1)
+    gmv = round((gmv_doc[0]["gmv"] if gmv_doc else 0), 2)
+    return {
+        "vendors_total": vendors_total,
+        "vendors_active": vendors_active,
+        "orders_total": orders_total,
+        "orders_today": orders_today,
+        "gmv": gmv,
+    }
+
+
+@master.get("/vendors")
+async def list_vendors():
+    vs = await db.vendors.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Add user email to each
+    for v in vs:
+        u = await db.users.find_one({"vendor_id": v["id"], "role": "vendor_admin"}, {"_id": 0, "email": 1})
+        v["admin_email"] = u["email"] if u else None
+    return vs
+
+
+@master.post("/vendors")
+async def create_vendor(payload: VendorCreate):
+    if not payload.accepts_tos:
+        raise HTTPException(400, "Vendor must accept Terms of Service")
+
+    slug = (payload.slug or slugify(payload.name)).lower()
+    if await db.vendors.find_one({"slug": slug}):
+        raise HTTPException(400, f"Slug '{slug}' already taken")
+
+    vendor_id = str(uuid.uuid4())
+    vendor = {
+        "id": vendor_id,
+        "slug": slug,
+        "name": payload.name.strip(),
+        "owner_name": payload.owner_name.strip(),
+        "owner_phone": payload.owner_phone.strip(),
+        "address": payload.address.strip(),
+        "upi_id": payload.upi_id.strip(),
+        "payment_qr_url": "",
+        "store_status": "open",
+        "opening_time": "10:00",
+        "closing_time": "23:00",
+        "subscription_active": True,
+        "subscription_expires_at": payload.subscription_expires_at,
+        "license_info": payload.license_info.strip(),
+        "next_order_seq": 0,
+        "created_at": now_iso(),
+    }
+    await db.vendors.insert_one(dict(vendor))
+
+    # Create vendor admin user — username = slug, default password = slug + "123"
+    default_pw = f"{slug}123"
+    admin_email = f"{slug}@vendor.local"
+    user_id = str(uuid.uuid4())
+    await db.users.insert_one({
+        "id": user_id,
+        "email": admin_email,
+        "password_hash": hash_pw(default_pw),
+        "name": payload.owner_name.strip(),
+        "role": "vendor_admin",
+        "vendor_id": vendor_id,
+        "created_at": now_iso(),
+    })
+
+    return {"vendor": vendor, "admin_email": admin_email, "default_password": default_pw}
+
+
+@master.patch("/vendors/{vid}")
+async def update_vendor(vid: str, payload: VendorUpdate):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.vendors.find_one_and_update(
+        {"id": vid}, {"$set": update}, return_document=True, projection={"_id": 0}
+    )
+    if not res:
+        raise HTTPException(404, "Vendor not found")
+    return res
+
+
+@master.delete("/vendors/{vid}")
+async def deactivate_vendor(vid: str):
+    """Soft-disable: turns subscription off (storefront becomes unavailable)."""
+    res = await db.vendors.update_one(
+        {"id": vid}, {"$set": {"subscription_active": False}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Vendor not found")
+    return {"ok": True}
+
+
+@master.get("/orders")
+async def all_orders(limit: int = 200):
+    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    # Add vendor names
+    vs = {v["id"]: v["name"] for v in await db.vendors.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+    for o in orders:
+        o["vendor_name"] = vs.get(o["vendor_id"], "—")
+    return orders
+
+
+# ==================== Vendor Admin ====================
+vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
+
+
+@vendor_r.get("/me")
+async def vendor_me(user=Depends(require_vendor)):
+    return user["vendor"]
+
+
+@vendor_r.patch("/store")
+async def update_store(payload: VendorUpdate, user=Depends(require_vendor)):
+    """Vendor self-service: store status, hours, UPI, QR."""
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Block fields only Master can change
+    update.pop("subscription_active", None)
+    update.pop("subscription_expires_at", None)
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.vendors.find_one_and_update(
+        {"id": user["vendor_id"]}, {"$set": update}, return_document=True, projection={"_id": 0}
+    )
+    return res
+
+
+@vendor_r.get("/stats")
+async def vendor_stats(user=Depends(require_vendor)):
+    vid = user["vendor_id"]
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     today_orders = await db.orders.find(
-        {"created_at": {"$gte": today_start}}, {"_id": 0}
+        {"vendor_id": vid, "created_at": {"$gte": today_start}}, {"_id": 0}
     ).to_list(1000)
-    total_orders = await db.orders.count_documents({})
-    total_products = await db.products.count_documents({})
-    today_revenue = sum(o.get("total", 0) for o in today_orders if o.get("status") != "cancelled")
-
+    total_orders = await db.orders.count_documents({"vendor_id": vid})
+    total_products = await db.products.count_documents({"vendor_id": vid})
+    today_revenue = sum(o["total"] for o in today_orders if o["status"] not in ("rejected", "cancelled"))
     by_status: Dict[str, int] = {}
-    for s in ALLOWED_STATUSES:
-        by_status[s] = await db.orders.count_documents({"status": s})
-
+    for s in ORDER_STATES:
+        by_status[s] = await db.orders.count_documents({"vendor_id": vid, "status": s})
     return {
         "total_orders": total_orders,
         "today_orders": len(today_orders),
@@ -738,134 +529,83 @@ async def stats():
     }
 
 
-@admin_router.get("/orders", response_model=List[Order])
-async def list_orders(status_filter: Optional[str] = None, limit: int = 200):
-    q: Dict[str, Any] = {}
-    if status_filter and status_filter in ALLOWED_STATUSES:
+@vendor_r.get("/orders")
+async def vendor_orders(status_filter: Optional[str] = None, limit: int = 200, user=Depends(require_vendor)):
+    q = {"vendor_id": user["vendor_id"]}
+    if status_filter and status_filter in ORDER_STATES:
         q["status"] = status_filter
-    orders = await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    return [Order(**o) for o in orders]
+    return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
 
 
-@admin_router.get("/orders/{oid}", response_model=Order)
-async def get_order(oid: str):
-    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+@vendor_r.patch("/orders/{oid}")
+async def vendor_update_order(oid: str, payload: OrderStatusUpdate, user=Depends(require_vendor)):
+    if payload.status not in ORDER_STATES:
+        raise HTTPException(400, f"Invalid status. Allowed: {ORDER_STATES}")
+    o = await db.orders.find_one({"id": oid, "vendor_id": user["vendor_id"]}, {"_id": 0})
     if not o:
         raise HTTPException(404, "Order not found")
-    return Order(**o)
-
-
-@admin_router.patch("/orders/{oid}", response_model=Order)
-async def update_order_status(oid: str, payload: OrderStatusUpdate):
-    if payload.status not in ALLOWED_STATUSES:
-        raise HTTPException(400, f"Invalid status. Allowed: {sorted(ALLOWED_STATUSES)}")
+    history = o.get("status_history", []) + [{"status": payload.status, "at": now_iso()}]
     res = await db.orders.find_one_and_update(
         {"id": oid},
-        {"$set": {"status": payload.status, "updated_at": now_iso()}},
+        {"$set": {"status": payload.status, "status_history": history, "updated_at": now_iso()}},
         return_document=True,
         projection={"_id": 0},
     )
-    if not res:
-        raise HTTPException(404, "Order not found")
-    # Notify customer of status change (best-effort)
-    msg = wa.status_change_to_customer(res, payload.status)
-    if msg and res.get("customer_phone"):
-        wa.send(res["customer_phone"], msg)
-    return Order(**res)
+    return res
 
 
-# ============== Admin: Products ==============
-@admin_router.get("/products", response_model=List[Product])
-async def list_products():
-    items = await db.products.find({}, {"_id": 0}).sort("sort_order", 1).to_list(2000)
-    return [Product(**p) for p in items]
+@vendor_r.get("/products")
+async def vendor_products(user=Depends(require_vendor)):
+    return await db.products.find({"vendor_id": user["vendor_id"]}, {"_id": 0}).to_list(2000)
 
 
-@admin_router.post("/products", response_model=Product)
-async def create_product(payload: ProductCreate):
+@vendor_r.post("/products")
+async def vendor_create_product(payload: ProductCreate, user=Depends(require_vendor)):
     sub = await db.subgroups.find_one({"id": payload.subgroup_id}, {"_id": 0})
-    if not sub:
-        raise HTTPException(400, "Invalid subgroup_id")
-    if sub["category_id"] != payload.category_id:
-        raise HTTPException(400, "subgroup_id does not belong to category_id")
-    cat = await db.categories.find_one({"id": payload.category_id}, {"_id": 0})
-    if not cat:
-        raise HTTPException(400, "Invalid category_id")
-    new = {"id": str(uuid.uuid4()), "sort_order": 0, **payload.model_dump()}
+    if not sub or sub["category_id"] != payload.category_id:
+        raise HTTPException(400, "Invalid category/subgroup")
+    new = {"id": str(uuid.uuid4()), "vendor_id": user["vendor_id"], "sort_order": 0, **payload.model_dump()}
     await db.products.insert_one(dict(new))
-    return Product(**new)
+    return new
 
 
-@admin_router.patch("/products/{pid}", response_model=Product)
-async def update_product(pid: str, payload: ProductUpdate):
+@vendor_r.patch("/products/{pid}")
+async def vendor_update_product(pid: str, payload: ProductUpdate, user=Depends(require_vendor)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update:
         raise HTTPException(400, "Nothing to update")
-    if "subgroup_id" in update or "category_id" in update:
-        existing = await db.products.find_one({"id": pid}, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, "Product not found")
-        merged = {**existing, **update}
-        sub = await db.subgroups.find_one({"id": merged["subgroup_id"]}, {"_id": 0})
-        if not sub or sub["category_id"] != merged["category_id"]:
-            raise HTTPException(400, "subgroup/category mismatch")
     res = await db.products.find_one_and_update(
-        {"id": pid}, {"$set": update}, return_document=True, projection={"_id": 0}
+        {"id": pid, "vendor_id": user["vendor_id"]}, {"$set": update},
+        return_document=True, projection={"_id": 0},
     )
     if not res:
         raise HTTPException(404, "Product not found")
-    return Product(**res)
+    return res
 
 
-@admin_router.delete("/products/{pid}")
-async def delete_product(pid: str):
-    res = await db.products.delete_one({"id": pid})
-    if res.deleted_count == 0:
+@vendor_r.delete("/products/{pid}")
+async def vendor_delete_product(pid: str, user=Depends(require_vendor)):
+    r = await db.products.delete_one({"id": pid, "vendor_id": user["vendor_id"]})
+    if r.deleted_count == 0:
         raise HTTPException(404, "Product not found")
     return {"ok": True}
 
 
-# ============== Admin: Categories & Subgroups ==============
-@admin_router.get("/categories", response_model=List[Category])
-async def list_categories():
-    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
-    return [Category(**c) for c in cats]
+@vendor_r.get("/categories")
+async def vendor_categories(user=Depends(require_vendor)):
+    return await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
 
 
-@admin_router.get("/subgroups", response_model=List[Subgroup])
-async def list_subgroups():
-    items = await db.subgroups.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
-    return [Subgroup(**s) for s in items]
+@vendor_r.get("/subgroups")
+async def vendor_subgroups(user=Depends(require_vendor)):
+    return await db.subgroups.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
 
 
-@admin_router.post("/subgroups", response_model=Subgroup)
-async def create_subgroup(payload: SubgroupCreate):
-    cat = await db.categories.find_one({"id": payload.category_id}, {"_id": 0})
-    if not cat:
-        raise HTTPException(400, "Invalid category_id")
-    new = {
-        "id": payload.name.lower().replace(" ", "-")[:32] + "-" + uuid.uuid4().hex[:4],
-        **payload.model_dump(),
-    }
-    await db.subgroups.insert_one(dict(new))
-    return Subgroup(**new)
+# Mount routers
+api.include_router(master)
+api.include_router(vendor_r)
+app.include_router(api)
 
-
-@admin_router.delete("/subgroups/{sid}")
-async def delete_subgroup(sid: str):
-    if await db.products.count_documents({"subgroup_id": sid}) > 0:
-        raise HTTPException(400, "Subgroup has products. Delete or reassign them first.")
-    res = await db.subgroups.delete_one({"id": sid})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Subgroup not found")
-    return {"ok": True}
-
-
-api_router.include_router(admin_router)
-app.include_router(api_router)
-
-
-# ============== CORS ==============
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -875,51 +615,44 @@ app.add_middleware(
 )
 
 
-# ============== Startup: indexes + seed ==============
+# ==================== startup ====================
 @app.on_event("startup")
 async def on_startup():
-    # Indexes
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
-    await db.categories.create_index("id", unique=True)
-    await db.subgroups.create_index("id", unique=True)
+    await db.vendors.create_index("slug", unique=True)
+    await db.vendors.create_index("id", unique=True)
     await db.products.create_index("id", unique=True)
+    await db.products.create_index([("vendor_id", 1), ("subgroup_id", 1)])
     await db.orders.create_index("id", unique=True)
-    await db.orders.create_index("created_at")
-    await db.conversations.create_index("sender", unique=True)
-    await db.login_attempts.create_index("identifier", unique=True)
+    await db.orders.create_index("tracking_token", unique=True)
+    await db.orders.create_index([("vendor_id", 1), ("created_at", -1)])
 
-    # Seed catalog
-    if await db.categories.count_documents({}) == 0:
-        logger.info("Seeding categories…")
-        await db.categories.insert_many([dict(c) for c in SEED_CATEGORIES])
-    if await db.subgroups.count_documents({}) == 0:
-        logger.info("Seeding subgroups…")
-        await db.subgroups.insert_many([dict(s) for s in SEED_SUBGROUPS])
-    if await db.products.count_documents({}) == 0:
-        logger.info("Seeding products…")
-        await db.products.insert_many([dict(p) for p in expanded_seed_products()])
-
-    # Seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@store.com").strip().lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    existing = await db.users.find_one({"email": admin_email})
+    # Seed master admin
+    me_email = os.environ["MASTER_ADMIN_EMAIL"].strip().lower()
+    me_pw = os.environ["MASTER_ADMIN_PASSWORD"]
+    existing = await db.users.find_one({"email": me_email})
     if not existing:
-        logger.info(f"Seeding admin user {admin_email}…")
+        logger.info(f"Seeding master admin {me_email}")
         await db.users.insert_one({
             "id": str(uuid.uuid4()),
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
-            "name": "Vendor Admin",
-            "role": "admin",
+            "email": me_email,
+            "password_hash": hash_pw(me_pw),
+            "name": "Master Admin",
+            "role": "master_admin",
+            "vendor_id": None,
             "created_at": now_iso(),
         })
-    elif not verify_password(admin_password, existing["password_hash"]):
-        logger.info("Updating admin password from .env…")
-        await db.users.update_one(
-            {"email": admin_email},
-            {"$set": {"password_hash": hash_password(admin_password)}},
-        )
+
+    # Seed shared categories/subgroups (always — these are platform-wide constants)
+    if await db.categories.count_documents({}) == 0:
+        await seed_initial_catalog(db)
+
+    # Seed one demo vendor + their products
+    if await db.vendors.count_documents({}) == 0:
+        logger.info("Seeding demo vendor 'sharma-wines'")
+        from seed_data import seed_demo_vendor
+        await seed_demo_vendor(db, hash_pw)
 
 
 @app.on_event("shutdown")

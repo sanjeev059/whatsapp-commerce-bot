@@ -833,6 +833,8 @@ async def vendor_subgroups(user=Depends(require_vendor)):
 @vendor_r.post("/products/bulk")
 async def vendor_bulk_products(payload: BulkProductsIn, user=Depends(require_vendor)):
     """Bulk-import products. Each row is a ProductCreate; invalid rows are skipped and reported."""
+    if len(payload.products) > 1000:
+        raise HTTPException(400, "Too many products in one request (max 1000)")
     valid_subs = {
         s["id"]: s["category_id"]
         for s in await db.subgroups.find({}, {"_id": 0}).to_list(200)
@@ -864,9 +866,13 @@ async def vendor_bulk_products(payload: BulkProductsIn, user=Depends(require_ven
 # ==================== push subscriptions ====================
 @vendor_r.post("/push/subscribe")
 async def push_subscribe(payload: PushSubscriptionIn, user=Depends(require_vendor)):
-    endpoint = (payload.subscription or {}).get("endpoint")
-    if not endpoint:
+    sub_obj = payload.subscription or {}
+    endpoint = sub_obj.get("endpoint")
+    keys = sub_obj.get("keys") or {}
+    if not endpoint or not isinstance(endpoint, str):
         raise HTTPException(400, "Missing endpoint in subscription")
+    if not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(400, "Subscription missing required keys (p256dh / auth)")
     doc = {
         "id": str(uuid.uuid4()),
         "vendor_id": user["vendor_id"],

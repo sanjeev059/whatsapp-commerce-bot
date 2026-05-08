@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { apiErrorMessage } from "@/lib/apiError";
@@ -7,25 +7,22 @@ import { LogIn, Sparkles, Eye, EyeOff } from "lucide-react";
 export default function AdminLogin() {
   const { user, login } = useAdminAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@store.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (user) navigate("/admin", { replace: true });
-  }, [user, navigate]);
-
-  if (user) return <Navigate to="/admin" replace />;
+  if (user && user.role === "master_admin") return <Navigate to="/admin/master" replace />;
+  if (user && user.role === "vendor_admin") return <Navigate to="/admin" replace />;
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setSubmitting(true);
     try {
-      await login(email.trim(), password);
-      navigate("/admin", { replace: true });
+      const u = await login(email.trim(), password);
+      navigate(u.role === "master_admin" ? "/admin/master" : "/admin", { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err, "Login failed"));
     } finally {
@@ -55,7 +52,7 @@ export default function AdminLogin() {
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-              Vendor Console
+              Admin Console
             </div>
             <div className="text-base font-semibold">Local Commerce</div>
           </div>
@@ -65,29 +62,25 @@ export default function AdminLogin() {
           Sign in
         </h1>
         <p className="text-sm text-[var(--text-muted)] mt-2 mb-7">
-          Manage your orders and catalog.
+          Master admins manage vendors. Vendor admins manage their store.
         </p>
 
         <form onSubmit={submit} className="space-y-3">
           <label className="block">
-            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">
-              Email
-            </span>
+            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Email</span>
             <input
               type="email"
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="input mt-1"
-              placeholder="admin@store.com"
+              placeholder="you@vendor.local"
               required
               data-testid="login-email"
             />
           </label>
           <label className="block">
-            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">
-              Password
-            </span>
+            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Password</span>
             <div className="relative mt-1">
               <input
                 type={showPwd ? "text" : "password"}
@@ -136,8 +129,10 @@ export default function AdminLogin() {
           </button>
         </form>
 
-        <div className="mt-6 text-[11px] text-[var(--text-faint)] text-center">
-          Default seeded credentials: <span className="text-[var(--text-muted)]">admin@store.com / admin123</span>
+        <div className="mt-6 text-[11px] text-[var(--text-faint)] text-center leading-relaxed">
+          Demo master · <span className="text-[var(--text-muted)]">master@localcommerce.in / master123</span>
+          <br />
+          Demo vendor · <span className="text-[var(--text-muted)]">sharma-wines@vendor.local / sharma-wines123</span>
         </div>
       </div>
     </div>

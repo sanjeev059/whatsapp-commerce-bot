@@ -5,7 +5,10 @@ export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
 
-export async function fetchCatalog() {
-  const { data } = await api.get("/catalog");
+// Public storefront fetch — never sends auth header.
+export async function fetchStorefront(slug) {
+  const { data } = await api.get(`/storefront/${slug}`, {
+    headers: { Authorization: "" },
+  });
   return data;
 }

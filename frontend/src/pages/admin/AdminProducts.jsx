@@ -26,9 +26,9 @@ export default function AdminProducts() {
     setLoading(true);
     try {
       const [p, c, s] = await Promise.all([
-        api.get("/admin/products"),
-        api.get("/admin/categories"),
-        api.get("/admin/subgroups"),
+        api.get("/vendor/products"),
+        api.get("/vendor/categories"),
+        api.get("/vendor/subgroups"),
       ]);
       setProducts(p.data);
       setCategories(c.data);
@@ -59,7 +59,7 @@ export default function AdminProducts() {
   const remove = async (pid) => {
     if (!window.confirm("Delete this product?")) return;
     try {
-      await api.delete(`/admin/products/${pid}`);
+      await api.delete(`/vendor/products/${pid}`);
       toast.success("Product deleted");
       setProducts((p) => p.filter((x) => x.id !== pid));
     } catch (e) {
@@ -276,10 +276,10 @@ function ProductFormModal({ product, categories, subgroups, onClose, onSaved }) 
       const payload = { ...form, price: parseFloat(form.price) };
       let saved;
       if (isNew) {
-        const { data } = await api.post("/admin/products", payload);
+        const { data } = await api.post("/vendor/products", payload);
         saved = data;
       } else {
-        const { data } = await api.patch(`/admin/products/${product.id}`, payload);
+        const { data } = await api.patch(`/vendor/products/${product.id}`, payload);
         saved = data;
       }
       toast.success(isNew ? "Product added" : "Product updated");

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Trash2, ShoppingBag, AlertTriangle } from "lucide-react";
 import Header from "@/components/Header";
 import QuantityStepper from "@/components/QuantityStepper";
@@ -14,6 +14,7 @@ const CAT_LABELS = {
 };
 
 export default function Cart() {
+  const { slug } = useParams();
   const { items, setQty, remove, totals, clear } = useCart();
   const navigate = useNavigate();
 
@@ -22,7 +23,6 @@ export default function Cart() {
     items.some((i) => i.category_id === "liquor") &&
     liquorTotal < CATEGORY_RULES.liquor.minSubtotal;
 
-  // Group items by category
   const grouped = items.reduce((acc, it) => {
     (acc[it.category_id] = acc[it.category_id] || []).push(it);
     return acc;
@@ -44,7 +44,7 @@ export default function Cart() {
             Add a few items from the store to get started.
           </p>
           <button
-            onClick={() => navigate("/store")}
+            onClick={() => navigate(`/store/${slug}/menu`)}
             className="btn-primary mt-7 px-6"
             data-testid="cart-empty-shop-btn"
           >
@@ -73,8 +73,8 @@ export default function Cart() {
 
       <div className="px-4 pt-4 space-y-4">
         {order.map((catId) => {
-          const items = grouped[catId];
-          const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+          const list = grouped[catId];
+          const subtotal = list.reduce((s, i) => s + i.price * i.qty, 0);
           return (
             <div key={catId} className="surface p-3" data-testid={`cart-group-${catId}`}>
               <div className="flex items-center justify-between mb-2 px-1">
@@ -87,7 +87,6 @@ export default function Cart() {
                 </div>
               </div>
 
-              {/* Liquor warning */}
               {catId === "liquor" && liquorBlock && (
                 <div
                   className="mb-3 p-3 rounded-xl flex items-start gap-2"
@@ -113,7 +112,7 @@ export default function Cart() {
               )}
 
               <div className="space-y-3">
-                {items.map((it) => (
+                {list.map((it) => (
                   <div
                     key={it.id}
                     className="flex items-center gap-3"
@@ -160,7 +159,6 @@ export default function Cart() {
           );
         })}
 
-        {/* Bill summary */}
         <div className="surface p-4" data-testid="cart-bill-summary">
           <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-3">
             Bill summary
@@ -173,14 +171,13 @@ export default function Cart() {
         </div>
       </div>
 
-      {/* Checkout sticky */}
       <div
         className="fixed left-0 right-0 bottom-0 z-40 px-4 pb-4"
         style={{ pointerEvents: "none" }}
       >
         <div className="max-w-[480px] mx-auto" style={{ pointerEvents: "auto" }}>
           <button
-            onClick={() => !liquorBlock && navigate("/checkout")}
+            onClick={() => !liquorBlock && navigate(`/store/${slug}/checkout`)}
             disabled={liquorBlock}
             className="btn-primary w-full text-base"
             data-testid="cart-checkout-btn"

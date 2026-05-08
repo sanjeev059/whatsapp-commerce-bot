@@ -1,30 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchCatalog } from "@/lib/apiClient";
+import { fetchStorefront } from "@/lib/apiClient";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
 import StickyCartBar from "@/components/StickyCartBar";
+import { useCart } from "@/context/CartContext";
 
 export default function Products() {
-  const { categoryId } = useParams();
+  const { slug, categoryId } = useParams();
   const navigate = useNavigate();
-  const [catalog, setCatalog] = useState(null);
+  const { bindSlug } = useCart();
+  const [data, setData] = useState(null);
   const [activeSub, setActiveSub] = useState(null);
 
   useEffect(() => {
-    fetchCatalog().then((d) => {
-      setCatalog(d);
+    bindSlug(slug);
+    fetchStorefront(slug).then((d) => {
+      setData(d);
       const cat = d.categories.find((c) => c.id === categoryId);
-      if (cat?.subgroups?.length) setActiveSub(cat.subgroups[0].id);
+      if (cat?.subgroups?.length) {
+        const firstNonEmpty = cat.subgroups.find((s) => s.products.length > 0);
+        setActiveSub((firstNonEmpty || cat.subgroups[0]).id);
+      }
     });
-  }, [categoryId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, categoryId]);
 
   const category = useMemo(
-    () => catalog?.categories.find((c) => c.id === categoryId),
-    [catalog, categoryId]
+    () => data?.categories.find((c) => c.id === categoryId),
+    [data, categoryId]
   );
 
-  if (!catalog) {
+  if (!data) {
     return (
       <div className="min-h-[100dvh]" data-testid="products-loading">
         <Header title="Loading…" />
@@ -43,7 +50,7 @@ export default function Products() {
         <Header title="Not found" />
         <div className="p-6 text-center text-[var(--text-muted)]">
           Category not found.{" "}
-          <button onClick={() => navigate("/store")} className="underline">
+          <button onClick={() => navigate(`/store/${slug}/menu`)} className="underline">
             Back
           </button>
         </div>
@@ -60,7 +67,6 @@ export default function Products() {
         subtitle={category.tagline}
       />
 
-      {/* Subgroup chips */}
       {category.subgroups.length > 1 && (
         <div
           className="sticky top-[57px] z-20 px-4 py-3 flex gap-2 overflow-x-auto no-scrollbar"
@@ -111,14 +117,20 @@ export default function Products() {
       )}
 
       <div className="px-4 mt-4 space-y-3" data-testid="product-list">
-        {sub?.products.map((p) => (
-          <ProductCard
-            key={p.id}
-            product={p}
-            categoryId={category.id}
-            subgroupId={sub.id}
-          />
-        ))}
+        {sub?.products.length === 0 ? (
+          <div className="surface p-6 text-center text-sm text-[var(--text-muted)]">
+            No products in this group yet.
+          </div>
+        ) : (
+          sub?.products.map((p) => (
+            <ProductCard
+              key={p.id}
+              product={p}
+              categoryId={category.id}
+              subgroupId={sub.id}
+            />
+          ))
+        )}
       </div>
 
       <StickyCartBar />

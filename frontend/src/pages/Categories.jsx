@@ -1,22 +1,28 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { fetchCatalog } from "@/lib/apiClient";
+import { useNavigate, useParams } from "react-router-dom";
+import { fetchStorefront } from "@/lib/apiClient";
 import { ArrowRight, MapPin, Search } from "lucide-react";
 import StickyCartBar from "@/components/StickyCartBar";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 
 export default function Categories() {
-  const [catalog, setCatalog] = useState(null);
+  const { slug } = useParams();
+  const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const { totals } = useCart();
+  const { totals, bindSlug } = useCart();
 
   useEffect(() => {
-    fetchCatalog()
-      .then(setCatalog)
-      .catch((e) => setError(e?.message || "Failed to load"));
-  }, []);
+    bindSlug(slug);
+    fetchStorefront(slug)
+      .then((d) => {
+        setData(d);
+        if (!d.available) navigate(`/store/${slug}/closed`, { replace: true });
+      })
+      .catch((e) => setError(e?.response?.data?.detail || "Failed to load"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   return (
     <div className="min-h-[100dvh] pb-32" data-testid="categories-page">
@@ -37,13 +43,16 @@ export default function Categories() {
             </div>
             <div className="flex items-center gap-1 mt-1">
               <MapPin className="w-4 h-4 text-[var(--accent)]" />
-              <div className="font-semibold text-[15px]" data-testid="delivery-location">
-                HSR Layout, Sector 2
+              <div
+                className="font-semibold text-[15px] truncate max-w-[220px]"
+                data-testid="store-location"
+              >
+                {data?.vendor?.name || "Loading…"}
               </div>
             </div>
           </div>
           <button
-            onClick={() => navigate("/cart")}
+            onClick={() => navigate(`/store/${slug}/cart`)}
             className="text-xs font-semibold px-3 py-1.5 rounded-full border border-[var(--border)] text-[var(--text-muted)]"
             data-testid="header-cart-link"
           >
@@ -59,12 +68,17 @@ export default function Categories() {
             data-testid="search-input"
             disabled
           />
-          <span className="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">soon</span>
+          <span className="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">
+            soon
+          </span>
         </div>
       </div>
 
       <div className="px-5 pt-6">
-        <h2 className="text-[26px] font-extrabold tracking-tight" data-testid="categories-heading">
+        <h2
+          className="text-[26px] font-extrabold tracking-tight"
+          data-testid="categories-heading"
+        >
           What are you craving?
         </h2>
         <p className="text-sm text-[var(--text-muted)] mt-1">
@@ -72,12 +86,15 @@ export default function Categories() {
         </p>
 
         {error && (
-          <div className="mt-6 surface p-4 text-sm text-[var(--danger)]" data-testid="catalog-error">
+          <div
+            className="mt-6 surface p-4 text-sm text-[var(--danger)]"
+            data-testid="catalog-error"
+          >
             {error}
           </div>
         )}
 
-        {!catalog ? (
+        {!data ? (
           <div className="mt-6 grid grid-cols-2 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="surface aspect-[4/5] animate-pulse" />
@@ -85,19 +102,21 @@ export default function Categories() {
           </div>
         ) : (
           <div className="mt-5 grid grid-cols-2 gap-3" data-testid="categories-grid">
-            {catalog.categories.map((cat, i) => (
-              <CategoryCard
-                key={cat.id}
-                category={cat}
-                onClick={() => navigate(`/store/${cat.id}`)}
-                delay={i * 60}
-              />
-            ))}
+            {data.categories
+              .filter((cat) => cat.subgroups.some((s) => s.products.length > 0))
+              .map((cat, i) => (
+                <CategoryCard
+                  key={cat.id}
+                  category={cat}
+                  onClick={() => navigate(`/store/${slug}/c/${cat.id}`)}
+                  delay={i * 60}
+                />
+              ))}
           </div>
         )}
 
         {/* Promo banner */}
-        <div className="mt-6 surface p-4 flex items-center gap-3 fade-up" data-testid="promo-banner">
+        <div className="mt-6 surface p-4 flex items-center gap-3 fade-up">
           <div
             className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
             style={{ background: "rgba(255,181,71,0.12)" }}

@@ -1,0 +1,45 @@
+{
+  "summary": "Comprehensive E2E testing of the multi-tenant hyperlocal commerce SaaS refactor. 35/35 backend pytest cases pass on the new multi-tenant API surface (storefront, orders, tracking, auth, master, vendor with role-scope 403s). Frontend Playwright covers: (1) StorefrontHome -> /menu -> category list -> ProductList; (2) cart with liquor minimum warning + disabled checkout under \u20b91000 + enabled when raised above; (3) Checkout UPI happy path: rejects empty/short upi5 and stays on /checkout, accepts 5 digits then redirects to /confirmation showing 'Payment under review' + ORD- short_id + Track button; (4) Track page polling with status pipeline; (5) Master login -> /admin/master, vendors list shows seeded 'Sharma Wines & More', Add Vendor modal creates a vendor and credentials modal exposes <slug>@vendor.local + <slug>123; (6) Vendor login -> /admin, dashboard shows store, store-toggle-btn flips store_status and storefront availability flips accordingly via /api/storefront/{slug}; (7) /admin/orders shows 6+ orders with UPI/COD badges; /admin/products lists 54 demo products; /admin/store has working settings form. All role-isolation 403/401 contracts verified via pytest. Old single-vendor test files were obsolete and have been retired (.bak).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/store", "issues": ["OPENS AT / CLOSES AT use the browser's native <input type=\"time\"> picker rather than a shadcn TimePicker. Acceptable for MVP but inconsistent with the dark-themed shadcn surface."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_multitenant.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(optional) Replace native time inputs in AdminStore.jsx with a shadcn time picker component to match the rest of the dark UI.",
+    "(carryover from prior iter, low) Checkout.jsx: when items.length === 0 it calls navigate inside render \u2014 wrap in useEffect to silence React 'setState during render' warning.",
+    "(code review) server.py still uses deprecated FastAPI @app.on_event('startup'/'shutdown'); migrate to lifespan context manager."
+  ],
+  "critical_code_review_comments": [
+    "Order placement endpoint is correctly idempotent on its UPI 5-digit gate: re.fullmatch(r'\\d{5}', upi_last5) and rejects with 400 when missing or invalid. Verified.",
+    "Per-vendor short_id sequence uses find_one_and_update with $inc (server.py:302) \u2014 atomic and tenant-isolated. Good.",
+    "Vendor PATCH /api/vendor/store correctly strips subscription_active/subscription_expires_at so vendor cannot self-grant subscription. Verified by test_vendor_cannot_set_subscription.",
+    "Master DELETE /api/master/vendors/{vid} is a soft-delete (subscription_active=false). Storefront then returns available=false with reason. Reactivation via PATCH works. Good.",
+    "Tracking endpoint exposes customer_phone-less response (good privacy), but it still returns full delivery_address and customer_name to anyone who has the 16-hex token. 16 hex = 64 bits which is fine for unguessable tokens; document this in API.",
+    "Cart clears when slug changes (CartProvider.bindSlug) \u2014 verified manually that switching from sharma-wines/menu to a non-existent slug zero's the cart. Good.",
+    "AdminStore.jsx still shows store-toggle-btn even on /admin/store; ensure single source of truth (it currently calls /api/vendor/store with store_status = open|closed). No bug \u2014 just keep it consistent with the dashboard toggle.",
+    "Frontend storefront route renders 4 categories regardless of whether a category has 0 products in this vendor; consider hiding empty categories from /menu to avoid empty category pages."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_multitenant.py (new \u2014 35 tests, all green)",
+    "/app/backend/tests/_legacy_test_admin.py.bak (retired \u2014 single-vendor era)",
+    "/app/backend/tests/_legacy_test_catalog.py.bak (retired \u2014 single-vendor era)"
+  ],
+  "success_rate": {"backend": "100% (35/35)", "frontend": "100% on critical flows"},
+  "test_credentials": "Master: master@localcommerce.in / master123. Vendor: sharma-wines@vendor.local / sharma-wines123. Both verified.",
+  "seed_data_creation": "Test runs created: ~5 'TEST_*' orders (TEST_UpiOK, TEST_COD, TEST_Trans, TEST_UI_Cust placed via UI) plus ~2 master-created vendors with prefix 'test-<hex>' from create-then-deactivate test. Vendor-side TEST_VendorProd created and deleted per test. No production data altered. Demo store left in 'open' state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Multi-tenant API base layout: Public: /api/storefront/{slug}, /api/orders (POST), /api/track/{token}. Master (Bearer + role=master_admin): /api/master/{stats|vendors|orders}. Vendor (Bearer + role=vendor_admin): /api/vendor/{me|stats|store|orders|products|categories|subgroups}. JWT in localStorage 'lc_admin_token'. 7 order states: payment_verification_pending -> payment_verified -> accepted -> out_for_delivery -> delivered (terminal: rejected, cancelled). UPI orders start at payment_verification_pending; COD at accepted. Liquor min order \u20b91000 enforced server-side. Demo vendor 'sharma-wines' has 54 seeded products and slug-bound cart resets via CartProvider.bindSlug. Test_multitenant.py is the canonical regression suite.",
+  "rca of the issue": "N/A \u2014 no failing tests; refactor is functioning end-to-end."
+}

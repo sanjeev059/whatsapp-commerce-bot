@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 import { CATEGORY_RULES } from "@/config";
-import { api } from "@/lib/apiClient";
+import { api, fetchStorefront } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
 import {
-  MessageCircle,
   Phone,
   MapPin,
   User,
@@ -17,6 +16,7 @@ import {
   Banknote,
   Smartphone,
   Copy,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,36 +33,37 @@ const PAYMENT_OPTIONS = [
 ];
 
 export default function Checkout() {
+  const { slug } = useParams();
   const navigate = useNavigate();
-  const { items, totals, clear } = useCart();
-  const [form, setForm] = useState({
-    name: "",
-    phone: "",
-    address: "",
-    notes: "",
-  });
+  const { items, totals, clear, bindSlug } = useCart();
+
+  const [vendor, setVendor] = useState(null);
+  const [form, setForm] = useState({ name: "", phone: "", address: "", notes: "" });
   const [paymentMode, setPaymentMode] = useState("upi");
-  const [hasPaid, setHasPaid] = useState(false);
+  const [upiLast5, setUpiLast5] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [vendor, setVendor] = useState({ name: "Demo Store", upi_id: "", whatsapp: "" });
 
   useEffect(() => {
-    api
-      .get("/vendor", { headers: { Authorization: "" } })
-      .then(({ data }) => setVendor(data))
-      .catch(() => {});
-  }, []);
+    bindSlug(slug);
+    fetchStorefront(slug)
+      .then((d) => {
+        setVendor(d.vendor);
+        if (!d.available) navigate(`/store/${slug}/closed`, { replace: true });
+      })
+      .catch(() => toast.error("Could not load store details"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  useEffect(() => {
+    if (items.length === 0) navigate(`/store/${slug}/cart`, { replace: true });
+  }, [items.length, navigate, slug]);
+
+  if (items.length === 0 || !vendor) return null;
 
   const liquorTotal = totals.byCat?.liquor || 0;
   const liquorBlock =
     items.some((i) => i.category_id === "liquor") &&
     liquorTotal < CATEGORY_RULES.liquor.minSubtotal;
-
-  useEffect(() => {
-    if (items.length === 0) navigate("/cart", { replace: true });
-  }, [items.length, navigate]);
-
-  if (items.length === 0) return null;
 
   const grouped = items.reduce((acc, it) => {
     (acc[it.category_id] = acc[it.category_id] || []).push(it);
@@ -74,9 +75,7 @@ export default function Checkout() {
 
   const validate = () => {
     if (liquorBlock) {
-      toast.error(
-        `Liquor minimum order is ${formatINR(CATEGORY_RULES.liquor.minSubtotal)}`
-      );
+      toast.error(`Liquor minimum order is ${formatINR(CATEGORY_RULES.liquor.minSubtotal)}`);
       return false;
     }
     if (!form.name.trim()) {
@@ -92,14 +91,14 @@ export default function Checkout() {
       toast.error("Please enter a complete delivery address");
       return false;
     }
-    if (paymentMode === "upi" && !hasPaid) {
-      toast.error("Tap 'I've Paid' after completing the UPI payment");
+    if (paymentMode === "upi" && !/^\d{5}$/.test(upiLast5)) {
+      toast.error("Enter the last 5 digits of your UPI transaction");
       return false;
     }
     return true;
   };
 
-  // UPI deep-link string (per Indian UPI spec)
+  // UPI deep-link
   const upiAmount = totals.total.toFixed(2);
   const upiNote = encodeURIComponent(`Order from ${vendor.name}`);
   const upiPa = vendor.upi_id || "vendor@upi";
@@ -118,42 +117,41 @@ export default function Checkout() {
       category_id: i.category_id,
     }));
 
-    let savedOrder = null;
     try {
       const { data } = await api.post(
         "/orders",
         {
+          vendor_slug: slug,
           customer_name: form.name,
           customer_phone: form.phone,
           delivery_address: form.address,
           notes: form.notes,
-          payment_mode:
-            paymentMode === "upi" ? "Paid via UPI" : "Cash on Delivery",
+          payment_mode: paymentMode,
+          upi_last5: paymentMode === "upi" ? upiLast5 : null,
           items: orderItems,
         },
         { headers: { Authorization: "" } }
       );
-      savedOrder = data;
+
+      sessionStorage.setItem(
+        "lc_last_order",
+        JSON.stringify({
+          short_id: data.short_id,
+          tracking_token: data.tracking_token,
+          status: data.status,
+          total: totals.total,
+          count: totals.count,
+          payment_mode: paymentMode,
+          customer: form,
+          vendor_name: vendor.name,
+        })
+      );
+      clear();
+      setTimeout(() => navigate("/confirmation", { replace: true }), 200);
     } catch (e) {
-      setSubmitting(false);
       toast.error(apiErrorMessage(e, "Could not place order"));
-      return;
+      setSubmitting(false);
     }
-
-    sessionStorage.setItem(
-      "lc_last_order",
-      JSON.stringify({
-        total: totals.total,
-        count: totals.count,
-        customer: form,
-        items: items.map((i) => ({ ...i })),
-        short_id: savedOrder?.short_id,
-        payment_mode: savedOrder?.payment_mode,
-      })
-    );
-
-    clear();
-    setTimeout(() => navigate("/confirmation", { replace: true }), 200);
   };
 
   const copyUpi = async () => {
@@ -167,7 +165,7 @@ export default function Checkout() {
 
   return (
     <div className="min-h-[100dvh] pb-44" data-testid="checkout-page">
-      <Header title="Checkout" subtitle="Confirm your details" />
+      <Header title="Checkout" subtitle={vendor.name} />
 
       <div className="px-4 pt-4 space-y-4">
         {/* Order summary */}
@@ -224,7 +222,7 @@ export default function Checkout() {
           <FieldIcon icon={<Phone className="w-4 h-4" />}>
             <input
               className="input pl-10"
-              placeholder="WhatsApp number (e.g. +91 9XXXXXXXXX)"
+              placeholder="Mobile number (e.g. +91 9XXXXXXXXX)"
               type="tel"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -267,12 +265,10 @@ export default function Checkout() {
                   key={opt.id}
                   onClick={() => {
                     setPaymentMode(opt.id);
-                    setHasPaid(false);
+                    setUpiLast5("");
                   }}
                   className={`p-3 rounded-xl border text-left transition-all ${
-                    active
-                      ? "border-[var(--accent)]"
-                      : "border-[var(--border-soft)]"
+                    active ? "border-[var(--accent)]" : "border-[var(--border-soft)]"
                   }`}
                   style={{
                     background: active
@@ -284,9 +280,7 @@ export default function Checkout() {
                   <div
                     className="w-7 h-7 rounded-lg flex items-center justify-center mb-2"
                     style={{
-                      background: active
-                        ? "rgba(34,210,122,0.18)"
-                        : "var(--surface)",
+                      background: active ? "rgba(34,210,122,0.18)" : "var(--surface)",
                       color: active ? "var(--accent)" : "var(--text-muted)",
                     }}
                   >
@@ -305,7 +299,7 @@ export default function Checkout() {
           {paymentMode === "upi" && (
             <div className="mt-4 fade-up" data-testid="upi-panel">
               <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] mb-2">
-                Scan to pay {formatINR(totals.total)}
+                Step 1 · Scan to pay {formatINR(totals.total)}
               </div>
               <div className="flex items-start gap-3">
                 <div
@@ -313,49 +307,81 @@ export default function Checkout() {
                   style={{ background: "white" }}
                   data-testid="upi-qr"
                 >
-                  <QRCodeSVG
-                    value={upiUri}
-                    size={130}
-                    level="M"
-                    includeMargin={false}
-                  />
+                  {vendor.payment_qr_url ? (
+                    <img
+                      src={vendor.payment_qr_url}
+                      alt="UPI QR"
+                      className="w-[130px] h-[130px] object-contain"
+                    />
+                  ) : (
+                    <QRCodeSVG value={upiUri} size={130} level="M" includeMargin={false} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-[var(--text-muted)]">
-                    Pay to
-                  </div>
-                  <div className="font-semibold text-sm truncate">
-                    {vendor.name}
-                  </div>
+                  <div className="text-xs text-[var(--text-muted)]">Pay to</div>
+                  <div className="font-semibold text-sm truncate">{vendor.name}</div>
                   <button
                     onClick={copyUpi}
                     className="mt-1 text-xs flex items-center gap-1 text-[var(--accent)] hover:underline"
                     data-testid="upi-copy-id"
                   >
-                    <Copy className="w-3 h-3" /> {upiPa || "vendor@upi"}
+                    <Copy className="w-3 h-3" /> {upiPa}
                   </button>
                   <div className="mt-2 text-[11px] text-[var(--text-faint)] leading-relaxed">
-                    Scan with PhonePe / GPay / Paytm or any UPI app and complete
-                    the payment, then tap the button below.
+                    Scan with PhonePe / GPay / Paytm and complete the payment.
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setHasPaid(true);
-                  toast.success("Marked as paid — confirm below to send order");
+
+              <div
+                className="mt-4 p-3 rounded-xl"
+                style={{
+                  background: "rgba(255,181,71,0.08)",
+                  border: "1px solid rgba(255,181,71,0.25)",
                 }}
-                disabled={hasPaid}
-                className={`mt-3 w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 ${
-                  hasPaid
-                    ? "bg-[rgba(34,210,122,0.18)] text-[var(--accent)]"
-                    : "btn-ghost"
-                }`}
-                data-testid="upi-mark-paid"
+                data-testid="upi-verify-block"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                {hasPaid ? "Payment marked — confirm below" : "I've paid"}
-              </button>
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldCheck className="w-4 h-4 text-[var(--warm)]" />
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--warm)] font-semibold">
+                    Step 2 · Verify your payment
+                  </div>
+                </div>
+                <div className="text-xs text-[var(--text-muted)] mb-2 leading-relaxed">
+                  Enter the <span className="text-white font-semibold">last 5 digits</span> of your
+                  UPI transaction reference. The vendor will match it before accepting your order.
+                </div>
+                <input
+                  inputMode="numeric"
+                  pattern="\d{5}"
+                  maxLength={5}
+                  value={upiLast5}
+                  onChange={(e) => setUpiLast5(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                  className="input tracking-[0.4em] font-mono text-center text-lg"
+                  placeholder="• • • • •"
+                  data-testid="upi-last5-input"
+                />
+                {upiLast5.length === 5 && (
+                  <div className="mt-2 text-xs text-[var(--accent)] flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Looks good — confirm below
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {paymentMode === "cod" && (
+            <div
+              className="mt-4 p-3 rounded-xl text-xs leading-relaxed"
+              style={{
+                background: "rgba(96,165,250,0.08)",
+                border: "1px solid rgba(96,165,250,0.20)",
+                color: "#bfdbfe",
+              }}
+              data-testid="cod-panel"
+            >
+              Keep exact change ready. The delivery person will collect{" "}
+              <span className="font-bold text-white">{formatINR(totals.total)}</span> at your door.
             </div>
           )}
         </div>
@@ -373,13 +399,13 @@ export default function Checkout() {
             className="btn-primary w-full text-base"
             data-testid="place-order-btn"
           >
-            <MessageCircle className="w-5 h-5" />
+            <CheckCircle2 className="w-5 h-5" />
             {submitting
               ? "Placing order…"
               : `Confirm Order · ${formatINR(totals.total)}`}
           </button>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)] text-center mt-2">
-            You'll get a WhatsApp confirmation · vendor gets notified instantly
+            You'll get a tracking link · vendor gets notified instantly
           </p>
         </div>
       </div>

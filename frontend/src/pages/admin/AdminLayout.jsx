@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate, Navigate } from "react-router-dom";
+import { Outlet, NavLink, useNavigate, Navigate, useLocation } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import {
   LayoutDashboard,
@@ -7,13 +7,16 @@ import {
   LogOut,
   Sparkles,
   ExternalLink,
+  Store,
+  Users,
+  Crown,
 } from "lucide-react";
 
 export default function AdminLayout() {
   const { user, logout } = useAdminAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Loading state (initial /auth/me check)
   if (user === null) {
     return (
       <div
@@ -26,15 +29,39 @@ export default function AdminLayout() {
   }
   if (user === false) return <Navigate to="/admin/login" replace />;
 
+  // Auto-redirect mismatched routes
+  const isMaster = user.role === "master_admin";
+  const path = location.pathname;
+  if (isMaster && !path.startsWith("/admin/master")) {
+    return <Navigate to="/admin/master" replace />;
+  }
+  if (!isMaster && path.startsWith("/admin/master")) {
+    return <Navigate to="/admin" replace />;
+  }
+
   const onLogout = () => {
     logout();
     navigate("/admin/login", { replace: true });
   };
 
-  const linkBase =
-    "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-colors";
+  const linkBase = "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-colors";
   const linkActive = "bg-[var(--surface-2)] text-white";
   const linkInactive = "text-[var(--text-muted)] hover:text-white hover:bg-[var(--surface)]";
+
+  const masterLinks = [
+    { to: "/admin/master", end: true, icon: LayoutDashboard, label: "Overview" },
+    { to: "/admin/master/vendors", icon: Users, label: "Vendors" },
+  ];
+  const vendorLinks = [
+    { to: "/admin", end: true, icon: LayoutDashboard, label: "Dashboard" },
+    { to: "/admin/orders", icon: ListOrdered, label: "Orders" },
+    { to: "/admin/products", icon: Package, label: "Products" },
+    { to: "/admin/store", icon: Store, label: "Store settings" },
+  ];
+  const links = isMaster ? masterLinks : vendorLinks;
+  const mobileLinks = isMaster
+    ? masterLinks
+    : vendorLinks.slice(0, 4); // dashboard, orders, products, store
 
   return (
     <div className="min-h-[100dvh] flex" data-testid="admin-layout">
@@ -48,58 +75,50 @@ export default function AdminLayout() {
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{
-              background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+              background: isMaster
+                ? "linear-gradient(135deg, #ffb547, #ff8a47)"
+                : "linear-gradient(135deg, var(--accent), var(--accent-2))",
             }}
           >
-            <Sparkles className="w-4 h-4 text-black" />
+            {isMaster ? (
+              <Crown className="w-4 h-4 text-black" />
+            ) : (
+              <Sparkles className="w-4 h-4 text-black" />
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-              Vendor
+              {isMaster ? "Master" : "Vendor"}
             </div>
             <div className="text-sm font-semibold">Local Commerce</div>
           </div>
         </div>
 
         <nav className="space-y-1 flex-1">
-          <NavLink
-            to="/admin"
-            end
-            className={({ isActive }) =>
-              `${linkBase} ${isActive ? linkActive : linkInactive}`
-            }
-            data-testid="nav-dashboard"
-          >
-            <LayoutDashboard className="w-4 h-4" /> Dashboard
-          </NavLink>
-          <NavLink
-            to="/admin/orders"
-            className={({ isActive }) =>
-              `${linkBase} ${isActive ? linkActive : linkInactive}`
-            }
-            data-testid="nav-orders"
-          >
-            <ListOrdered className="w-4 h-4" /> Orders
-          </NavLink>
-          <NavLink
-            to="/admin/products"
-            className={({ isActive }) =>
-              `${linkBase} ${isActive ? linkActive : linkInactive}`
-            }
-            data-testid="nav-products"
-          >
-            <Package className="w-4 h-4" /> Products
-          </NavLink>
-
-          <a
-            href="/"
-            target="_blank"
-            rel="noreferrer"
-            className={`${linkBase} ${linkInactive}`}
-            data-testid="nav-storefront"
-          >
-            <ExternalLink className="w-4 h-4" /> View storefront
-          </a>
+          {links.map((it) => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.end}
+              className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}
+              data-testid={`nav-${it.label.toLowerCase().replace(/\s/g, "-")}`}
+            >
+              <it.icon className="w-4 h-4" /> {it.label}
+            </NavLink>
+          ))}
+          {!isMaster && (
+            <a
+              href={`/store/${user.vendor_id ? "" : ""}`}
+              onClick={(e) => {
+                e.preventDefault();
+                window.open("/", "_blank", "noopener,noreferrer");
+              }}
+              className={`${linkBase} ${linkInactive}`}
+              data-testid="nav-storefront"
+            >
+              <ExternalLink className="w-4 h-4" /> View storefront
+            </a>
+          )}
         </nav>
 
         <div className="border-t border-[var(--border-soft)] pt-4">
@@ -129,8 +148,12 @@ export default function AdminLayout() {
         }}
       >
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[var(--accent)]" />
-          <span className="font-semibold">Vendor</span>
+          {isMaster ? (
+            <Crown className="w-4 h-4 text-[var(--warm)]" />
+          ) : (
+            <Sparkles className="w-4 h-4 text-[var(--accent)]" />
+          )}
+          <span className="font-semibold">{isMaster ? "Master" : "Vendor"}</span>
         </div>
         <button
           onClick={onLogout}
@@ -143,18 +166,15 @@ export default function AdminLayout() {
 
       {/* Mobile bottom nav */}
       <div
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 grid grid-cols-3 border-t"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 grid border-t"
         style={{
           background: "rgba(7,8,11,0.92)",
           backdropFilter: "blur(14px)",
           borderColor: "var(--border-soft)",
+          gridTemplateColumns: `repeat(${mobileLinks.length}, minmax(0, 1fr))`,
         }}
       >
-        {[
-          { to: "/admin", end: true, icon: LayoutDashboard, label: "Stats" },
-          { to: "/admin/orders", icon: ListOrdered, label: "Orders" },
-          { to: "/admin/products", icon: Package, label: "Products" },
-        ].map((it) => (
+        {mobileLinks.map((it) => (
           <NavLink
             key={it.to}
             to={it.to}
@@ -164,7 +184,7 @@ export default function AdminLayout() {
                 isActive ? "text-[var(--accent)]" : "text-[var(--text-muted)]"
               }`
             }
-            data-testid={`mobile-nav-${it.label.toLowerCase()}`}
+            data-testid={`mobile-nav-${it.label.toLowerCase().replace(/\s/g, "-")}`}
           >
             <it.icon className="w-5 h-5" />
             {it.label}

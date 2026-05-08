@@ -1,63 +1,81 @@
-# Local Commerce — Hyperlocal WhatsApp Storefront PRD
+# Local Commerce — Hyperlocal Commerce SaaS PRD
 
 ## Original Problem Statement
-Build a mobile-first hyperlocal commerce platform with WhatsApp `wa.me` deep-link checkout (Blinkit/Zepto-style). Customer scans QR at local store → mobile storefront → cart → checkout → formatted order summary opens in WhatsApp ready to send to vendor. Optional vendor admin dashboard added on top.
+Production-style hyperlocal commerce SaaS optimized for local MRP/liquor stores, cigarette shops, snack stores, and food delivery. Multi-tenant, web-only (no WhatsApp), with QR-based UPI payment + last-5-digit verification, real-time tracking, and store open/close controls.
 
-## User Personas
-- **Customer**: scans QR, browses on phone, places order via WhatsApp.
-- **Vendor**: receives orders in WhatsApp AND in vendor admin dashboard for tracking + status management.
+## Pivot decision (locked)
+WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of record for liquor. Architecture is now 100% web-based: PWA-friendly customer storefronts (slug-based) + tracking pages + role-scoped admin dashboards.
 
-## Core Requirements (Static)
-- Premium dark mobile-first storefront (max-width 480px phone-frame on desktop)
-- 4 categories: Liquor, Cigarettes, Snacks, Food
-- Liquor minimum ₹1000 rule (warn + block, server-enforced)
-- Cigarettes: Full Pack Only enforcement
-- Sticky cart bar with live total, category-grouped cart
-- WhatsApp `wa.me` deep-link checkout — no payment gateway
-- Vendor admin dashboard with JWT auth (single seeded admin)
-- Mock data seeded once on first startup; admin can CRUD products
-- Tech: React + Tailwind + FastAPI + MongoDB + bcrypt + PyJWT
+## Personas
+- **Master Admin**: platform owner. Onboards/disables vendors, sees platform-wide GMV.
+- **Vendor Admin**: store owner. Manages products, orders, store hours, UPI ID, QR.
+- **Customer**: public, no auth. Scans QR → store/<slug> → cart → checkout → /track/<token>.
 
-## What's Been Implemented
+## Architecture
+- **Stack**: React + TailwindCSS + FastAPI + MongoDB + bcrypt + PyJWT
+- **Multi-tenant**: vendor slug (e.g. `sharma-wines`). Storefront URL: `/store/<slug>`.
+- **Auth**: JWT in `localStorage["lc_admin_token"]`; `auth_user` middleware decodes role + vendor_id.
+- **Role isolation**: `require_master` and `require_vendor` dependencies; vendors are scoped to their own `vendor_id` for products/orders/stats.
+- **Order lifecycle (7 states)**: `payment_verification_pending → payment_verified → accepted → out_for_delivery → delivered` (+ `rejected`, `cancelled`).
+- **UPI verification**: customer enters last 5 digits of UPI txn ID; vendor matches against UPI app history before flipping to `payment_verified`.
 
-### Iteration 1 (May 7, 2026) — Customer storefront
-- ✅ FastAPI `/api/catalog` (mock data)
-- ✅ Landing → Categories → Products → Cart → Checkout → Confirmation
-- ✅ Sticky cart bar, quantity steppers, liquor min ₹1000 rule, cigarettes Full Pack Only
-- ✅ WhatsApp `wa.me` deep link with emoji-grouped order summary
-- ✅ localStorage cart persistence, image fallback
-- ✅ 100% testing pass (testing_agent_v3 iteration_1.json)
+## Implemented (as of Feb 2026)
 
-### Iteration 2 (May 7, 2026) — Vendor admin dashboard
-- ✅ DB-backed catalog (categories/subgroups/products in MongoDB, seeded once)
-- ✅ Orders persisted in MongoDB on Place Order (server enforces liquor min)
-- ✅ JWT auth with bcrypt + brute-force protection (5 fails = 15 min lockout per {ip}:{email})
-- ✅ Admin pages: `/admin/login`, `/admin` (Dashboard), `/admin/orders`, `/admin/products`
-- ✅ Dashboard: today's revenue, today's orders, all-time orders, products count, status pipeline pills, recent orders (polled every 15s)
-- ✅ Orders: filter chips, status update select, detail modal with re-share customer WhatsApp + copy details
-- ✅ Products: search + category filter, full CRUD with category+subgroup picker, image fallback
-- ✅ Sidebar nav (desktop) + bottom nav (mobile), 401 auto-logout via axios interceptor
-- ✅ Seeded admin: `admin@store.com` / `admin123`
-- ✅ 100% testing pass (testing_agent_v3 iteration_2.json — 22/22 backend + all frontend flows)
+### Phase 0 — backend rewrite (previous session)
+- Multi-tenant data model: `vendors`, `users`, `categories`, `subgroups`, `products`, `orders`
+- Public storefront API, master/vendor/admin role-scoped routers
+- Atomic per-vendor order sequence, tracking_token (16 hex), UPI 5-digit gate, liquor ₹1000 min server-side
+- Master admin + demo vendor seeded on startup
+
+### Phase 1 — frontend rewrite (this session)
+- ✅ Slug-scoped customer flow: Landing → /store/:slug (StorefrontHome) → /menu (Categories) → /c/:catId (Products) → /cart → /checkout → /confirmation → /track/:token
+- ✅ Slug-aware CartContext that resets when slug changes
+- ✅ Checkout: UPI mode with auto-generated QR (or vendor-uploaded QR URL) + 5-digit verification block; COD fallback
+- ✅ Confirmation page with state-aware copy ("Payment under review" vs "Order placed")
+- ✅ TrackOrder polling + 7-state pipeline visual
+- ✅ Role-aware AdminLogin (auto-redirects to `/admin/master` or `/admin`)
+- ✅ AdminLayout switches sidebar/bottom-nav between master and vendor
+- ✅ Vendor dashboard: stats, 7-state pipeline, recent orders, OPEN/CLOSE toggle, UPI-not-set CTA
+- ✅ Vendor orders: filter chips for all 7 states, UPI•last5 + COD badges, payment-verify CTA, transition-aware next-state buttons
+- ✅ Vendor products CRUD against `/api/vendor/products`
+- ✅ Vendor store settings: name, address, UPI ID, payment QR URL, hours, open/close, license info, copy-storefront-link
+- ✅ Master dashboard: vendors_total, GMV, recent orders, vendors quick list
+- ✅ Master vendors: list + onboard modal (name/owner/phone/UPI/license/ToS) + post-create credentials modal + soft-deactivate / reactivate
+- ✅ Cleanup: removed obsolete WhatsApp lib + VENDOR_PHONE config
+
+### Verified by testing agent (iteration_3.json)
+- 35/35 backend pytest pass
+- All frontend Playwright flows green
+- Role isolation 403/401 contracts verified
 
 ## Files of Reference
-- `backend/server.py` — auth, admin router, public order endpoint, catalog
-- `backend/seed_data.py` — initial catalog data (4 cat, 15 subgroups, 54 products)
-- `backend/.env` — `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
-- `frontend/src/App.js` — routes (customer + admin)
-- `frontend/src/context/{AdminAuthContext,CartContext}.jsx`
-- `frontend/src/pages/{Landing,Categories,Products,Cart,Checkout,Confirmation}.jsx`
-- `frontend/src/pages/admin/{AdminLogin,AdminLayout,AdminDashboard,AdminOrders,AdminProducts}.jsx`
-- `frontend/src/lib/{whatsapp,format,apiClient,apiError}.js`
+- `backend/server.py` — public + master + vendor routers, role middleware
+- `backend/seed_data.py` — categories/subgroups + demo vendor `sharma-wines`
+- `backend/tests/test_multitenant.py` — canonical regression suite
+- `frontend/src/App.js` — slug-scoped routes
+- `frontend/src/context/CartContext.jsx` — slug-bound cart
+- `frontend/src/pages/{StorefrontHome,Categories,Products,Cart,Checkout,Confirmation,TrackOrder,StoreClosed,Landing}.jsx`
+- `frontend/src/pages/admin/{AdminLogin,AdminLayout,AdminDashboard,AdminOrders,AdminProducts,AdminStore,MasterDashboard,MasterVendors,orderStatus}.{jsx,js}`
 
-## Prioritized Backlog
-- **P1**: Order tracking link sent back to customer (status updates pushed via WhatsApp)
-- **P1**: Multi-vendor / per-store QR codes deep-linking to a specific vendor catalog
-- **P2**: Categories CRUD (currently 4 fixed) + subgroup CRUD UI in admin
-- **P2**: Search on storefront + recently ordered for returning customers
-- **P3**: Subscriptions, vendor analytics, peak-hour insights
-- **P3**: Migrate to FastAPI lifespan() instead of deprecated `on_event` hooks
+## Roadmap
 
-## Next Tasks (When User Returns)
-- Add real WhatsApp number in `frontend/src/config.js` `VENDOR_PHONE` or `REACT_APP_VENDOR_PHONE`
-- Optionally enable browser push / sound for new-order alerts in admin
+### P1 — Polish & Vendor empowerment
+- Vendor product image upload to Cloudinary (currently URL-only)
+- Vendor QR image upload (currently URL-only; auto-QR fallback in place)
+- PWA + Web Push (VAPID) for new-order browser notifications + sound for vendor
+
+### P2 — Operational
+- Day/night dynamic pricing per category
+- Geolocation capture in checkout + Google Maps link in vendor order detail
+- Bulk product CSV import for vendors
+- Vendor self-serve password change
+
+### P3 — Refactoring
+- Migrate `server.py` from `@app.on_event` to FastAPI `lifespan`
+- Split `server.py` into `/app/backend/routes/{public,master,vendor,auth}.py`
+- Replace `<input type="time">` with shadcn time picker for visual consistency
+
+### P4 — Future / SaaS-grade
+- Stripe billing for vendor subscriptions (master can mark subscription_expires_at)
+- Per-vendor analytics + peak-hour insights
+- Customer-side recently-ordered + search

@@ -1222,10 +1222,28 @@ async def on_startup():
 
     # Backfill: any pre-existing seeded user without the password_must_change field
     # gets it set to True so the launch banner shows until they rotate.
-    await db.users.update_many(
-        {"password_must_change": {"$exists": False}, "email": {"$in": [me_email, "sharma-wines@vendor.local"]}},
-        {"$set": {"password_must_change": True}},
-    )
+    # One-time migration — guarded by a record in db.migrations so a master who
+    # deliberately resets their password back to the default isn't auto-flagged.
+    MIGRATION_ID = "20250508_password_must_change_backfill"
+    already_run = await db.migrations.find_one({"id": MIGRATION_ID})
+    if not already_run:
+        result = await db.users.update_many(
+            {
+                "password_must_change": {"$exists": False},
+                "email": {"$in": [me_email, "sharma-wines@vendor.local"]},
+            },
+            {"$set": {"password_must_change": True}},
+        )
+        await db.migrations.insert_one({
+            "id": MIGRATION_ID,
+            "matched": result.matched_count,
+            "modified": result.modified_count,
+            "ran_at": now_iso(),
+        })
+        logger.info(
+            "Migration %s: matched=%d modified=%d",
+            MIGRATION_ID, result.matched_count, result.modified_count,
+        )
 
     # Seed shared categories/subgroups (always — these are platform-wide constants)
     if await db.categories.count_documents({}) == 0:

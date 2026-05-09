@@ -390,6 +390,14 @@ class BulkProductsIn(BaseModel):
     replace_existing: bool = False  # if true, soft-delete current products first
 
 
+class PlatformBillingUpdate(BaseModel):
+    upi_id: Optional[str] = None
+    upi_name: Optional[str] = None
+    whatsapp: Optional[str] = None
+    monthly_fee_inr: Optional[int] = None
+    note_to_vendor: Optional[str] = None
+
+
 # ==================== public storefront ====================
 @api.get("/")
 async def root():
@@ -918,6 +926,77 @@ async def all_orders(limit: int = 200):
     return orders
 
 
+# ==================== Platform billing (master configures, vendor sees) ====================
+DEFAULT_PLATFORM_BILLING = {
+    "id": "platform_billing",
+    "upi_id": "",
+    "upi_name": "GharSip",
+    "whatsapp": "",
+    "monthly_fee_inr": 5000,
+    "note_to_vendor": "Pay your monthly subscription to keep your store live. After paying, send the screenshot to the WhatsApp number above and the platform team will activate your store within 30 minutes.",
+}
+
+
+async def _get_platform_billing() -> Dict[str, Any]:
+    doc = await db.settings.find_one({"id": "platform_billing"}, {"_id": 0})
+    if not doc:
+        await db.settings.insert_one(dict(DEFAULT_PLATFORM_BILLING))
+        return dict(DEFAULT_PLATFORM_BILLING)
+    return doc
+
+
+@master.get("/billing")
+async def master_get_billing(user=Depends(require_master)):
+    return await _get_platform_billing()
+
+
+@master.patch("/billing")
+async def master_update_billing(payload: PlatformBillingUpdate, user=Depends(require_master)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    if "monthly_fee_inr" in update:
+        update["monthly_fee_inr"] = max(0, int(update["monthly_fee_inr"]))
+    await db.settings.update_one(
+        {"id": "platform_billing"},
+        {"$set": update, "$setOnInsert": {"id": "platform_billing"}},
+        upsert=True,
+    )
+    return await _get_platform_billing()
+
+
+@api.get("/billing/qr.png")
+async def platform_billing_qr(size: int = 512):
+    """Public PNG UPI-intent QR for platform subscription payment. Embedded in vendor paywall + master billing page."""
+    cfg = await _get_platform_billing()
+    upi_id = (cfg.get("upi_id") or "").strip()
+    if not upi_id:
+        raise HTTPException(404, "Platform UPI not configured")
+    upi_name = (cfg.get("upi_name") or "GharSip").strip()
+    fee = int(cfg.get("monthly_fee_inr") or 0)
+    size = max(180, min(int(size), 1024))
+    # UPI deep-link spec: upi://pay?pa=<upi>&pn=<name>&am=<amount>&cu=INR&tn=<note>
+    from urllib.parse import quote
+    note = quote("GharSip subscription")
+    upi_url = f"upi://pay?pa={quote(upi_id)}&pn={quote(upi_name)}&am={fee}&cu=INR&tn={note}"
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(upi_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").resize((size, size))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
 # ==================== Vendor Admin ====================
 vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 
@@ -925,6 +1004,42 @@ vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 @vendor_r.get("/me")
 async def vendor_me(user=Depends(require_vendor)):
     return user["vendor"]
+
+
+@vendor_r.get("/billing")
+async def vendor_billing(user=Depends(require_vendor)):
+    """Vendor sees the platform's UPI/QR + their own subscription status (active flag, expiry date, days remaining)."""
+    cfg = await _get_platform_billing()
+    v = user["vendor"]
+    expires_at = v.get("subscription_expires_at")
+    days_remaining = None
+    is_expired = False
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            delta = exp_dt - datetime.now(timezone.utc)
+            days_remaining = int(delta.total_seconds() // 86400)
+            is_expired = delta.total_seconds() < 0
+        except Exception:
+            pass
+    return {
+        "platform": {
+            "upi_id": cfg.get("upi_id") or "",
+            "upi_name": cfg.get("upi_name") or "GharSip",
+            "whatsapp": cfg.get("whatsapp") or "",
+            "monthly_fee_inr": int(cfg.get("monthly_fee_inr") or 0),
+            "note_to_vendor": cfg.get("note_to_vendor") or "",
+            "qr_available": bool((cfg.get("upi_id") or "").strip()),
+        },
+        "subscription": {
+            "active": bool(v.get("subscription_active", True)),
+            "expires_at": expires_at,
+            "days_remaining": days_remaining,
+            "is_expired": is_expired,
+        },
+    }
 
 
 @vendor_r.post("/uploads/image")

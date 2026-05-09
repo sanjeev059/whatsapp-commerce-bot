@@ -20,7 +20,9 @@ import {
   BellRing,
   BarChart3,
   AlertTriangle,
+  Wallet,
 } from "lucide-react";
+import VendorBillingPaywall from "@/components/VendorBillingPaywall";
 
 export default function AdminLayout() {
   const { user, logout } = useAdminAuth();
@@ -88,6 +90,32 @@ export default function AdminLayout() {
     }
   };
 
+  // Vendor subscription / billing gate
+  const [billing, setBilling] = useState(null);
+  useEffect(() => {
+    if (!isVendor) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const { data } = await api.get("/vendor/billing");
+        if (!cancelled) setBilling(data);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 60000); // re-check once a minute so master flipping `subscription_active=true` reflects live
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isVendor]);
+  const subBlocked =
+    billing && (billing.subscription?.is_expired || !billing.subscription?.active);
+  const subDaysWarn =
+    billing &&
+    !subBlocked &&
+    typeof billing.subscription?.days_remaining === "number" &&
+    billing.subscription.days_remaining <= 7;
+
   if (user === null) {
     return (
       <div
@@ -121,6 +149,7 @@ export default function AdminLayout() {
   const masterLinks = [
     { to: "/admin/master", end: true, icon: LayoutDashboard, label: "Overview" },
     { to: "/admin/master/vendors", icon: Users, label: "Vendors" },
+    { to: "/admin/master/billing", icon: Wallet, label: "Billing" },
   ];
   const vendorLinks = [
     { to: "/admin", end: true, icon: LayoutDashboard, label: "Dashboard" },
@@ -353,7 +382,31 @@ export default function AdminLayout() {
             </div>
           </div>
         )}
-        <Outlet />
+        {isVendor && subDaysWarn && (
+          <div
+            className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-2 flex items-center gap-3 text-xs"
+            style={{
+              background: "rgba(255,181,71,0.10)",
+              border: "1px solid rgba(255,181,71,0.30)",
+            }}
+            data-testid="sub-warning-banner"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-[var(--warm)] shrink-0" />
+            <div className="flex-1 text-[var(--text-muted)] leading-relaxed">
+              Subscription expires in{" "}
+              <span className="font-bold text-white">
+                {billing.subscription.days_remaining} day
+                {billing.subscription.days_remaining === 1 ? "" : "s"}
+              </span>
+              . Renew before then to keep your store live.
+            </div>
+          </div>
+        )}
+        {isVendor && subBlocked ? (
+          <VendorBillingPaywall billing={billing} vendorName={user.email} />
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   );

@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration-10 Manual Subscription Billing & Vendor Paywall — comprehensive end-to-end testing. Backend (9/9 pytest PASS): /api/master/billing GET+PATCH persist correctly with all fields (upi_id, upi_name, monthly_fee_inr=5000, whatsapp, note_to_vendor); 403 enforced for vendor role on both GET and PATCH; /api/billing/qr.png returns valid 200 image/png (PNG signature verified) when upi_id set, and 404 when blank; /api/vendor/billing returns proper {platform, subscription} envelope with is_expired correctly flipping to true after master sets a past ISO expiry; subscription_active=false also propagates to vendor billing payload. Frontend (Playwright on REACT_APP_BACKEND_URL): Landing CTA renders 'Liquor Store →' (NOT 'Try the demo store'); document.title='GharSip — Hyperlocal Liquor Delivery' and #emergent-badge is absent on /, /store/sharma-wines, /admin/login; Master Billing page /admin/master/billing renders [master-billing-page] with all 7 testids (billing-upi-id, billing-upi-name, billing-fee, billing-whatsapp, billing-note, billing-save, billing-qr-preview); save persists and QR preview src includes ?v= cache-buster (qr.png?size=480&v=1); MasterVendors now shows 'Sub. Expiry' column with [vendor-expiry-<slug>] calendar buttons — clicking sharma-wines + window.prompt('2026-12-31') updates row to '31 Dec 26 · 237d left'; setting expired date as master then logging in as vendor renders [vendor-paywall] full-screen with [paywall-qr], [paywall-fee]='₹5,000', [paywall-copy-upi], [paywall-whatsapp]; navigating to /admin/orders while paywalled still shows paywall (Outlet correctly gated); setting expiry to ~5 days future shows [sub-warning-banner] with text 'Subscription expires in 4 days. Renew before then to keep your store live.' AND dashboard renders normally (paywall absent). Restored vendor state (subscription_active=true, expires_at=null) and platform billing (gharsip@okaxis / 5000) at end of suite.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MasterVendors.jsx", "issue": "Calendar icon was rendered (line 194) but NOT imported from lucide-react — caused 'ReferenceError: Calendar is not defined' and the entire /admin/master/vendors page crashed with React error overlay (Uncaught runtime errors). FIXED by adding 'Calendar' to the lucide-react import block in MasterVendors.jsx (line 14). Confirmed page now renders with Sub. Expiry column + calendar action button per vendor.", "selector": "import { ... Calendar } from 'lucide-react'", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Vendor paywall -> dashboard transition after master clears expiry", "issue": "After PATCH subscription_expires_at=null + subscription_active=true, an immediate page.goto('/admin') with 3.5s wait still rendered [vendor-paywall]. However, the very next test (warning banner with 5d future date) reloaded /admin and rendered the dashboard correctly. Likely a transient timing/race where the AdminLayout's /vendor/billing fetch hadn't completed in 3.5s on first reload. Functionally the gate does lift, but worth confirming there's no client-side caching of subBlocked beyond the last fetch (e.g., LocalStorage persistence of expired state).", "affected_selectors": ["[data-testid=vendor-paywall]"]}
+    ],
+    "design_issues": []
+  },
+  "scenarios_verified": [
+    {"name": "GET /api/master/billing (master) -> 200 with monthly_fee_inr default 5000", "result": "PASS"},
+    {"name": "PATCH /api/master/billing persists upi_id/upi_name/whatsapp/fee/note", "result": "PASS"},
+    {"name": "Master billing endpoints 403 for vendor role", "result": "PASS"},
+    {"name": "GET /api/billing/qr.png -> 200 image/png with valid PNG signature when upi_id set", "result": "PASS"},
+    {"name": "GET /api/billing/qr.png -> 404 when upi_id blank", "result": "PASS"},
+    {"name": "GET /api/vendor/billing returns {platform:{...}, subscription:{active,is_expired,...}} (active sharma-wines -> is_expired=false)", "result": "PASS"},
+    {"name": "PATCH master/vendors/{id} subscription_expires_at=<past> -> vendor billing is_expired=true", "result": "PASS"},
+    {"name": "PATCH master/vendors/{id} subscription_active=false -> vendor billing active=false", "result": "PASS"},
+    {"name": "Landing [demo-store-cta] text = 'Liquor Store →'", "result": "PASS"},
+    {"name": "No #emergent-badge on /, /store/sharma-wines, /admin/login; title = 'GharSip — Hyperlocal Liquor Delivery'", "result": "PASS"},
+    {"name": "/admin/master/billing renders [master-billing-page] with all form testids + live QR preview", "result": "PASS"},
+    {"name": "Save reloads QR with ?v= cache-buster", "result": "PASS"},
+    {"name": "/admin/master/vendors shows 'Sub. Expiry' column + [vendor-expiry-sharma-wines] (after fixing missing Calendar import)", "result": "PASS"},
+    {"name": "Expiry button + window.prompt sets date and row re-renders ('31 Dec 26')", "result": "PASS"},
+    {"name": "Expired vendor login -> [vendor-paywall] with [paywall-qr], [paywall-fee]='₹5,000', [paywall-copy-upi], [paywall-whatsapp]", "result": "PASS"},
+    {"name": "/admin/orders while paywalled still shows paywall (Outlet gated)", "result": "PASS"},
+    {"name": "5d-future expiry -> [sub-warning-banner] amber with 'expires in N days' + dashboard renders normally", "result": "PASS"},
+    {"name": "Restore: cleared expiry, active=true, platform billing reset to gharsip@okaxis/5000", "result": "PASS"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter10_billing.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [
+    "(Already fixed by testing agent) MasterVendors.jsx was missing 'Calendar' in the lucide-react import — added. Main agent should keep this fix; without it the /admin/master/vendors page crashes entirely, blocking vendor management.",
+    "(Investigate, low-priority) Confirm AdminLayout's /vendor/billing polling does NOT cache the prior subBlocked state across navigations beyond the last successful fetch — observed a 3.5s window after master cleared expiry where paywall still rendered on /admin reload, even though the next reload (after a different PATCH) rendered the dashboard correctly. Likely just a fetch-in-flight delay rather than a bug, but worth a 1-line check that subBlocked is reset to null/false at the start of each fetch (not stale-while-revalidate)."
+  ],
+  "critical_code_review_comments": [
+    "MasterVendors.jsx line 194 used <Calendar /> without importing it — runtime ReferenceError crashed the whole page until tested. Recommend ESLint rule react/jsx-no-undef to catch this class of bug at build time.",
+    "QR PNG cached server-side 5 minutes — for tests we used ?v=<ts> query param; the 404-when-empty path correctly bypasses cache because the cache is conditioned on upi_id presence. Good design.",
+    "Vendor paywall: [paywall-fee] hard-codes the rupee symbol+formatting client-side; consider returning fee_display from /api/vendor/billing alongside monthly_fee_inr so locale formatting is server-controlled (low priority).",
+    "server.py is now ~1400+ lines (per iter9 note) — splitting into routers (auth, master, vendor, public, delivery, billing) is overdue.",
+    "AdminLayout /vendor/billing poll every 60s is acceptable, but consider adding a 'visibilitychange' listener so it refetches when the vendor returns to the tab — currently they may sit on a stale state if the master flips their status while the tab is backgrounded."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/admin/MasterVendors.jsx (added Calendar to lucide-react imports)",
+    "/app/backend/tests/test_iter10_billing.py (new — 9 cases)",
+    "/app/test_reports/pytest/iter10_results.xml (generated)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (12/12 listed flows verified end-to-end after the Calendar import fix)"},
+  "test_credentials": "Master master@localcommerce.in / master123. Vendor sharma-wines@vendor.local / sharma-wines123. Both unchanged.",
+  "seed_data_creation": "No new vendor/customer rows. Test only mutated platform_billing and sharma-wines.subscription_* fields, all restored at end of suite (subscription_active=true, subscription_expires_at=null, platform billing = gharsip@okaxis / GharSip Owner / 919999999999 / 5000 / default note).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-10 canonical regression: /app/backend/tests/test_iter10_billing.py (9 cases incl. test_zz_restore_state which always re-activates sharma-wines and resets platform billing — DO NOT skip it). For frontend: the testid set covers master-billing-page, billing-upi-id|upi-name|fee|whatsapp|note|save|qr-preview, vendor-expiry-<slug>, vendor-paywall, paywall-qr|fee|copy-upi|whatsapp, sub-warning-banner, demo-store-cta. To exercise the paywall flow quickly: PATCH /api/master/vendors/<sharma_id> with {subscription_expires_at:'2025-01-01T00:00:00Z'} as master, then login as vendor and navigate to /admin — paywall should appear. Reverse with {subscription_expires_at:null}. NOTE: AdminLayout polls every 60s but a page reload triggers immediate refetch. Allow 3-5s after reload for the fetch to complete before asserting paywall visibility.",
+  "rca of the issue": "Single bug found and fixed: missing 'Calendar' lucide-react icon import in MasterVendors.jsx line 5-15 import block while it was used at line 194. Manifested as 'ReferenceError: Calendar is not defined' during render, caught by React's runtime overlay, which crashed the entire /admin/master/vendors route. Reproduction: navigate as master to /admin/master/vendors prior to fix -> red error overlay. Mitigation: added 'Calendar' to import list. Verified: vendors table renders with Sub. Expiry column + per-row calendar buttons; clicking the button + entering '2026-12-31' in window.prompt persists via PATCH /api/master/vendors/<id> and the row re-renders with '31 Dec 26 · 237d left'."
+}

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Save,
   Trash2,
+  Calendar,
 } from "lucide-react";
 
 export default function MasterVendors() {
@@ -57,6 +58,51 @@ export default function MasterVendors() {
     }
   };
 
+  const setExpiry = async (v) => {
+    const current = v.subscription_expires_at
+      ? new Date(v.subscription_expires_at).toISOString().slice(0, 10)
+      : "";
+    // eslint-disable-next-line no-alert
+    const input = window.prompt(
+      `Set subscription expiry for "${v.name}"\n\nFormat: YYYY-MM-DD (leave blank to clear)`,
+      current
+    );
+    if (input === null) return; // cancelled
+    const trimmed = input.trim();
+    let payload;
+    if (trimmed === "") {
+      payload = { subscription_expires_at: null };
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      toast.error("Use YYYY-MM-DD format");
+      return;
+    } else {
+      // Set to end-of-day in IST so the day itself counts
+      payload = { subscription_expires_at: `${trimmed}T23:59:59+05:30` };
+    }
+    try {
+      await api.patch(`/master/vendors/${v.id}`, payload);
+      toast.success(trimmed ? `Expiry → ${trimmed}` : "Expiry cleared");
+      load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    }
+  };
+
+  const formatExpiry = (iso) => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const days = Math.ceil((d - now) / 86400000);
+      const label = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+      if (days < 0) return { label, sub: `${Math.abs(days)}d ago`, expired: true };
+      if (days <= 7) return { label, sub: `${days}d left`, soon: true };
+      return { label, sub: `${days}d left` };
+    } catch {
+      return "—";
+    }
+  };
+
   return (
     <div className="px-4 md:px-8 pt-6 md:pt-8 pb-12" data-testid="master-vendors-page">
       <div className="flex items-end justify-between mb-5 gap-4 flex-wrap">
@@ -77,11 +123,12 @@ export default function MasterVendors() {
 
       {/* Vendor list */}
       <div className="surface overflow-hidden">
-        <div className="hidden md:grid md:grid-cols-[1fr_180px_140px_120px_120px] text-[11px] uppercase tracking-wider text-[var(--text-muted)] px-4 py-3 border-b border-[var(--border-soft)] font-semibold">
+        <div className="hidden md:grid md:grid-cols-[1fr_180px_140px_120px_140px_140px] text-[11px] uppercase tracking-wider text-[var(--text-muted)] px-4 py-3 border-b border-[var(--border-soft)] font-semibold">
           <div>Vendor</div>
           <div>Slug / URL</div>
           <div>Owner</div>
           <div className="text-center">Status</div>
+          <div className="text-center">Sub. expiry</div>
           <div className="text-right">Actions</div>
         </div>
         {vendors.length === 0 ? (
@@ -89,10 +136,12 @@ export default function MasterVendors() {
             {loading ? "Loading…" : "No vendors yet. Click 'Add vendor' to onboard the first one."}
           </div>
         ) : (
-          vendors.map((v) => (
+          vendors.map((v) => {
+            const exp = formatExpiry(v.subscription_expires_at);
+            return (
             <div
               key={v.id}
-              className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_180px_140px_120px_120px] items-center gap-3 px-4 py-3 border-b border-[var(--border-soft)] last:border-0"
+              className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_180px_140px_120px_140px_140px] items-center gap-3 px-4 py-3 border-b border-[var(--border-soft)] last:border-0"
               data-testid={`vendor-row-${v.slug}`}
             >
               <div className="min-w-0">
@@ -119,7 +168,32 @@ export default function MasterVendors() {
                   {v.subscription_active ? "Active" : "Disabled"}
                 </span>
               </div>
+              <div className="hidden md:flex flex-col items-center text-center">
+                {typeof exp === "object" ? (
+                  <>
+                    <span
+                      className="text-xs font-semibold"
+                      style={{
+                        color: exp.expired ? "#f43f5e" : exp.soon ? "#ffb547" : "var(--text)",
+                      }}
+                    >
+                      {exp.label}
+                    </span>
+                    <span className="text-[10px] text-[var(--text-faint)]">{exp.sub}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-[var(--text-faint)]">—</span>
+                )}
+              </div>
               <div className="flex justify-end gap-1">
+                <button
+                  onClick={() => setExpiry(v)}
+                  className="p-2 rounded-md hover:bg-[var(--surface-2)] text-[var(--text-muted)]"
+                  data-testid={`vendor-expiry-${v.slug}`}
+                  title="Set subscription expiry"
+                >
+                  <Calendar className="w-4 h-4" />
+                </button>
                 <a
                   href={`/store/${v.slug}`}
                   target="_blank"
@@ -151,7 +225,8 @@ export default function MasterVendors() {
                 )}
               </div>
             </div>
-          ))
+          );
+          })
         )}
       </div>
 

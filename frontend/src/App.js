@@ -24,6 +24,7 @@ import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import MasterDashboard from "@/pages/admin/MasterDashboard";
 import MasterVendors from "@/pages/admin/MasterVendors";
 import MasterSecurity from "@/pages/admin/MasterSecurity";
+import MasterBilling from "@/pages/admin/MasterBilling";
 
 function App() {
   return (
@@ -46,6 +47,7 @@ function App() {
                 {/* Master admin pages */}
                 <Route path="master" element={<MasterDashboard />} />
                 <Route path="master/vendors" element={<MasterVendors />} />
+                <Route path="master/billing" element={<MasterBilling />} />
                 <Route path="master/security" element={<MasterSecurity />} />
               </Route>
 

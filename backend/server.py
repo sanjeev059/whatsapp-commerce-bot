@@ -603,12 +603,14 @@ async def place_order(payload: OrderCreate):
 
     new_id = str(uuid.uuid4())
     tracking_token = uuid.uuid4().hex[:16]
+    delivery_token = uuid.uuid4().hex[:16]
     initial_status = "payment_verification_pending" if payload.payment_mode == "upi" else "accepted"
 
     order = {
         "id": new_id,
         "short_id": short_id,
         "tracking_token": tracking_token,
+        "delivery_token": delivery_token,
         "vendor_id": v["id"],
         "customer_name": payload.customer_name.strip(),
         "customer_phone": payload.customer_phone.strip(),
@@ -661,6 +663,95 @@ async def track_order(token: str):
         "vendor": _public_vendor(v) if v else None,
         "created_at": o["created_at"],
     }
+
+
+# ==================== delivery handoff (token-gated, no auth) ====================
+@api.get("/delivery/{token}")
+async def delivery_get(token: str):
+    """Public: delivery boy view of one order. Available only while status==out_for_delivery."""
+    o = await db.orders.find_one({"delivery_token": token}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Delivery link invalid")
+    v = await db.vendors.find_one({"id": o["vendor_id"]}, {"_id": 0})
+    return {
+        "short_id": o["short_id"],
+        "status": o["status"],
+        "is_actionable": o["status"] == "out_for_delivery",
+        "items": o["items"],
+        "total": o["total"],
+        "payment_mode": o["payment_mode"],
+        "customer_name": o["customer_name"],
+        "customer_phone": o["customer_phone"],
+        "delivery_address": o["delivery_address"],
+        "customer_lat": o.get("customer_lat"),
+        "customer_lng": o.get("customer_lng"),
+        "notes": o.get("notes", ""),
+        "vendor_name": v["name"] if v else "",
+        "delivered_at": o.get("delivered_at"),
+        "delivery_proof_image_id": o.get("delivery_proof_image_id"),
+    }
+
+
+@api.post(
+    "/delivery/{token}/delivered",
+    dependencies=[Depends(rate_limit(window_seconds=60, max_calls=10))],
+)
+async def delivery_mark_delivered(token: str, file: UploadFile = File(...)):
+    """Public: delivery boy marks the order delivered with a proof photo."""
+    o = await db.orders.find_one({"delivery_token": token}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Delivery link invalid")
+    if o["status"] != "out_for_delivery":
+        # Already delivered, cancelled, or never dispatched — link is "one-time" by design.
+        raise HTTPException(409, f"Order is already '{o['status']}', not deliverable")
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Photo must be JPEG, PNG, WEBP, or GIF")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"Photo too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)")
+    if not data:
+        raise HTTPException(400, "Empty photo")
+
+    image_id = uuid.uuid4().hex
+    await db.images.insert_one({
+        "id": image_id,
+        "vendor_id": o["vendor_id"],
+        "content_type": file.content_type,
+        "data": data,
+        "size": len(data),
+        "filename": file.filename,
+        "purpose": "delivery_proof",
+        "order_id": o["id"],
+        "created_at": now_iso(),
+    })
+
+    now_ts = now_iso()
+    new_history = list(o.get("status_history", [])) + [
+        {"status": "delivered", "at": now_ts, "by": "delivery_link"}
+    ]
+    await db.orders.update_one(
+        {"id": o["id"]},
+        {"$set": {
+            "status": "delivered",
+            "status_history": new_history,
+            "delivered_at": now_ts,
+            "delivery_proof_image_id": image_id,
+        }},
+    )
+
+    # Notify the vendor (push + log)
+    try:
+        await push_to_vendor(o["vendor_id"], {
+            "type": "delivered",
+            "short_id": o["short_id"],
+            "total": o["total"],
+            "customer": o["customer_name"],
+        })
+    except Exception as e:
+        logger.warning("delivered push failed: %s", e)
+
+    return {"ok": True, "status": "delivered", "delivered_at": now_ts, "proof_image_id": image_id}
 
 
 # ==================== auth ====================
@@ -1201,6 +1292,7 @@ async def on_startup():
     await db.products.create_index([("vendor_id", 1), ("subgroup_id", 1)])
     await db.orders.create_index("id", unique=True)
     await db.orders.create_index("tracking_token", unique=True)
+    await db.orders.create_index("delivery_token")
     await db.orders.create_index([("vendor_id", 1), ("created_at", -1)])
 
     # Seed master admin
@@ -1244,6 +1336,25 @@ async def on_startup():
             "Migration %s: matched=%d modified=%d",
             MIGRATION_ID, result.matched_count, result.modified_count,
         )
+
+    # Backfill delivery_token on any pre-existing orders that don't have one,
+    # so legacy orders can also be handed off via the public delivery link.
+    DELIVERY_MIGRATION = "20250509_delivery_token_backfill"
+    if not await db.migrations.find_one({"id": DELIVERY_MIGRATION}):
+        legacy = db.orders.find({"delivery_token": {"$exists": False}}, {"id": 1, "_id": 0})
+        count = 0
+        async for o in legacy:
+            await db.orders.update_one(
+                {"id": o["id"]},
+                {"$set": {"delivery_token": uuid.uuid4().hex[:16]}},
+            )
+            count += 1
+        await db.migrations.insert_one({
+            "id": DELIVERY_MIGRATION,
+            "modified": count,
+            "ran_at": now_iso(),
+        })
+        logger.info("Migration %s: modified=%d orders", DELIVERY_MIGRATION, count)
 
     # Seed shared categories/subgroups (always — these are platform-wide constants)
     if await db.categories.count_documents({}) == 0:

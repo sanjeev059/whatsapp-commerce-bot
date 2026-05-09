@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Smartphone, X, Share, Plus } from "lucide-react";
 
-const DISMISS_KEY = "lc_install_dismissed_v1";
+// Per-slug dismiss key so each new vendor gets a fresh nudge
+const DISMISS_KEY = (slug) => `gharsip:install-dismissed:${slug || "default"}`;
 
 function isIOS() {
   if (typeof navigator === "undefined") return false;
@@ -23,14 +24,14 @@ function isStandalone() {
  * - iOS Safari: shows a tooltip explaining the Share → Add to Home Screen flow.
  * - Hidden once dismissed (per device) or once already running standalone.
  */
-export default function InstallAppHint({ vendorName }) {
+export default function InstallAppHint({ vendorName, slug, autoOpen = false }) {
   const [deferred, setDeferred] = useState(null);
   const [show, setShow] = useState(false);
   const [iosTip, setIosTip] = useState(false);
 
   useEffect(() => {
     if (isStandalone()) return;
-    if (localStorage.getItem(DISMISS_KEY)) return;
+    if (localStorage.getItem(DISMISS_KEY(slug))) return;
 
     const onPrompt = (e) => {
       e.preventDefault();
@@ -39,24 +40,28 @@ export default function InstallAppHint({ vendorName }) {
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
 
-    // iOS doesn't fire beforeinstallprompt — show the manual tip after a delay
+    // iOS doesn't fire beforeinstallprompt — show the manual tip after a short delay.
+    // autoOpen mode (e.g. Confirmation page) opens the iOS modal directly.
     const iosTimer = isIOS()
       ? setTimeout(() => {
-          if (!isStandalone()) setShow(true);
-        }, 4000)
+          if (!isStandalone()) {
+            setShow(true);
+            if (autoOpen) setIosTip(true);
+          }
+        }, autoOpen ? 800 : 4000)
       : null;
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
       if (iosTimer) clearTimeout(iosTimer);
     };
-  }, []);
+  }, [slug, autoOpen]);
 
   const dismiss = () => {
     setShow(false);
     setIosTip(false);
     try {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()));
+      localStorage.setItem(DISMISS_KEY(slug), String(Date.now()));
     } catch {}
   };
 

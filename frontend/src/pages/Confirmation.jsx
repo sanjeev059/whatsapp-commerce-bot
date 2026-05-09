@@ -1,9 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, Clock, Home, Receipt, Truck } from "lucide-react";
+import { CheckCircle2, Clock, Home, Receipt, Truck, Smartphone, Share, Plus } from "lucide-react";
 import { formatINR } from "@/lib/format";
 
 const PAYMENT_LABELS = { upi: "Paid via UPI", cod: "Cash on Delivery" };
+
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iP(ad|hone|od)/.test(ua) && !window.MSStream;
+}
+function isStandalone() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
 
 export default function Confirmation() {
   const navigate = useNavigate();
@@ -90,6 +103,7 @@ export default function Confirmation() {
       </div>
 
       <div className="px-4 pb-5 space-y-2" data-testid="confirmation-actions">
+        <SaveAsAppCard vendorName={order.vendor_name} />
         <Link
           to={`/track/${order.tracking_token}`}
           className="btn-primary w-full text-base"
@@ -106,6 +120,128 @@ export default function Confirmation() {
         </button>
       </div>
     </div>
+  );
+}
+
+function SaveAsAppCard({ vendorName }) {
+  const [deferred, setDeferred] = useState(null);
+  const [iosTip, setIosTip] = useState(false);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    if (isStandalone()) {
+      setInstalled(true);
+      return;
+    }
+    const onPrompt = (e) => {
+      e.preventDefault();
+      setDeferred(e);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
+
+  if (installed) return null;
+
+  const onInstall = async () => {
+    if (deferred) {
+      deferred.prompt();
+      const { outcome } = await deferred.userChoice;
+      if (outcome === "accepted") setInstalled(true);
+      setDeferred(null);
+    } else if (isIOS()) {
+      setIosTip(true);
+    } else {
+      // Desktop / browser without beforeinstallprompt — fall back to iOS-style tip
+      setIosTip(true);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={onInstall}
+        className="w-full surface p-3 flex items-center gap-3 text-left hover:border-[var(--accent)] transition-colors fade-up"
+        style={{
+          background: "rgba(34,210,122,0.06)",
+          border: "1px solid rgba(34,210,122,0.30)",
+        }}
+        data-testid="confirmation-install-btn"
+      >
+        <div
+          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: "rgba(34,210,122,0.16)" }}
+        >
+          <Smartphone className="w-5 h-5 text-[var(--accent)]" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold leading-tight">
+            Save {vendorName || "this store"} as an app
+          </div>
+          <div className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-snug">
+            One-tap reorder next time · No app store · Works offline
+          </div>
+        </div>
+        <div className="text-[var(--accent)] text-xs font-bold shrink-0 px-2">
+          Install
+        </div>
+      </button>
+
+      {iosTip && (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.65)" }}
+          onClick={() => setIosTip(false)}
+          data-testid="confirmation-install-tip"
+        >
+          <div
+            className="surface max-w-[440px] w-full rounded-2xl p-5 fade-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-bold mb-1">Save to your home screen</div>
+            <p className="text-xs text-[var(--text-muted)] mb-3">
+              So you don't forget the URL — find {vendorName || "the store"} as an app icon next time.
+            </p>
+            <ol className="text-sm text-[var(--text-muted)] space-y-2.5">
+              <li className="flex items-center gap-2">
+                <Step n={1} />
+                <div className="flex items-center gap-2">
+                  Tap <Share className="inline w-4 h-4 text-white" /> Share at the bottom
+                </div>
+              </li>
+              <li className="flex items-center gap-2">
+                <Step n={2} />
+                <div className="flex items-center gap-2">
+                  Choose <Plus className="inline w-4 h-4 text-white" /> "Add to Home Screen"
+                </div>
+              </li>
+              <li className="flex items-center gap-2">
+                <Step n={3} />
+                <div>Tap "Add" — that's it.</div>
+              </li>
+            </ol>
+            <button
+              onClick={() => setIosTip(false)}
+              className="btn-ghost w-full mt-4 justify-center text-sm"
+              data-testid="confirmation-install-tip-close"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Step({ n }) {
+  return (
+    <span
+      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+      style={{ background: "rgba(34,210,122,0.14)", color: "var(--accent)" }}
+    >
+      {n}
+    </span>
   );
 }
 

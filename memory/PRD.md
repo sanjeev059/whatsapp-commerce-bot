@@ -61,6 +61,15 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - **Customer Add-to-Home-Screen**: `<PerVendorPWA>` injects a per-vendor manifest into `<head>` on `/store/<slug>` (server-rendered at `/api/storefront/<slug>/manifest.json` so no FOUC) + iOS apple-* meta tags. `<InstallAppHint>` shows a bottom bar that catches Android `beforeinstallprompt` for one-tap install or shows the iOS Safari Share→Add-to-Home modal — exactly like Codespaces.
 - ✅ Verified by testing agent (iteration_8.json): 11/11 backend tests pass + all frontend testids verified including blob/server manifest, QR PNG, master security route, credentials modal QR. Test cleanup also removed 8 leftover test vendors from prior iterations.
 
+### Phase 5 — Delivery boy handoff (Feb 2026)
+- **One-time delivery link** with **mandatory photo proof** to close the trust gap on dispatched orders, without requiring the delivery boy to install anything.
+- Backend: `delivery_token` (16-char hex) auto-generated on every order. Backfill migration ran for legacy orders.
+  - `GET /api/delivery/{token}` → returns sanitized order payload + `is_actionable` (true only when status = `out_for_delivery`).
+  - `POST /api/delivery/{token}/delivered` (multipart `file`) → enforces photo upload (≤3MB, image/* MIME), persists `proof_image_id`, flips status to `delivered`, returns 409 on duplicate attempts (one-time-link guarantee).
+- Frontend: `/d/:token` route mounted in `App.js`, page = `DeliveryHandoff.jsx` — strips Authorization header, shows order details, drop-off info, COD-collect alert, hidden file input wired to camera (`capture="environment"`), preview + retake, full-width "Mark Delivered" CTA disabled until photo present, success view shows the proof image.
+- Vendor flow: `AdminOrders.jsx` modal renders **Send to delivery boy** section (only when order status = `out_for_delivery`) with **Share on WhatsApp** (`wa.me` deep link with pre-filled order summary + delivery URL) + **Copy link** buttons.
+- ✅ Verified by testing agent (iteration_9.json): 6/6 backend pytest pass + 7/7 frontend flows including invalid-token, dispatch UI, photo upload via multipart, completed view, and one-time-link reopen guarantee.
+
 ## Files of Reference
 - Backend: `backend/server.py`, `backend/seed_data.py`, `backend/.env` (VAPID keys), `backend/tests/{test_multitenant,test_iter4_features,test_iter6_features}.py`
 - Frontend:

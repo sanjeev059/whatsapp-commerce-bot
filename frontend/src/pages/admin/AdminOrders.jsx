@@ -187,7 +187,8 @@ function OrderDetailModal({ order, onClose, onStatus }) {
 
   const trackingUrl = order.tracking_token ? `${window.location.origin}/track/${order.tracking_token}` : null;
   const deliveryUrl = order.delivery_token ? `${window.location.origin}/d/${order.delivery_token}` : null;
-  const canDispatch = ["accepted", "out_for_delivery"].includes(order.status) && deliveryUrl;
+  // Match backend is_actionable: link only works once vendor has dispatched.
+  const canDispatch = order.status === "out_for_delivery" && deliveryUrl;
   const next = NEXT_STATES[order.status] || [];
 
   const waShare = () => {

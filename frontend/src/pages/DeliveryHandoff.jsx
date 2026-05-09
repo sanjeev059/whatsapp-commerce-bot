@@ -61,7 +61,7 @@ export default function DeliveryHandoff() {
       const fd = new FormData();
       fd.append("file", photo);
       const { data } = await api.post(`/delivery/${token}/delivered`, fd, {
-        headers: { "Content-Type": "multipart/form-data", Authorization: "" },
+        headers: { Authorization: "" },
       });
       setOrder({
         ...order,

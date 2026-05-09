@@ -16,6 +16,8 @@ import {
   CreditCard,
   ShieldCheck,
   Map,
+  Truck,
+  MessageCircle,
 } from "lucide-react";
 
 const FILTER_OPTIONS = [{ v: "", l: "All" }, ...STATUS_ORDER.map((k) => ({ v: k, l: STATUS_META[k].label }))];
@@ -184,7 +186,34 @@ function OrderDetailModal({ order, onClose, onStatus }) {
   };
 
   const trackingUrl = order.tracking_token ? `${window.location.origin}/track/${order.tracking_token}` : null;
+  const deliveryUrl = order.delivery_token ? `${window.location.origin}/d/${order.delivery_token}` : null;
+  const canDispatch = ["accepted", "out_for_delivery"].includes(order.status) && deliveryUrl;
   const next = NEXT_STATES[order.status] || [];
+
+  const waShare = () => {
+    if (!deliveryUrl) return;
+    const totalLine =
+      order.payment_mode === "cod"
+        ? `Collect ₹${Math.round(order.total)} cash on delivery.`
+        : `Already paid via UPI. No cash to collect.`;
+    const msg =
+      `*New delivery — Order #${order.short_id}*\n` +
+      `${order.customer_name} · ${order.customer_phone}\n` +
+      `${order.delivery_address}\n\n` +
+      `${totalLine}\n\n` +
+      `Open this link to confirm delivery (photo required):\n${deliveryUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
+
+  const copyDeliveryLink = async () => {
+    if (!deliveryUrl) return;
+    try {
+      await navigator.clipboard.writeText(deliveryUrl);
+      toast.success("Delivery link copied");
+    } catch {
+      toast.error("Could not copy");
+    }
+  };
 
   return (
     <div
@@ -333,6 +362,49 @@ function OrderDetailModal({ order, onClose, onStatus }) {
             <div className="text-sm text-[var(--text-muted)]">Total</div>
             <div className="text-xl font-extrabold">{formatINR(order.total)}</div>
           </div>
+
+          {/* Dispatch to delivery boy */}
+          {canDispatch && (
+            <div data-testid="dispatch-section">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">
+                Send to delivery boy
+              </div>
+              <div
+                className="p-3 rounded-xl"
+                style={{
+                  background: "rgba(34,210,122,0.06)",
+                  border: "1px solid rgba(34,210,122,0.24)",
+                }}
+              >
+                <div className="flex items-start gap-2">
+                  <Truck className="w-4 h-4 mt-0.5 text-[var(--accent)]" />
+                  <div className="text-xs text-[var(--text-muted)] leading-relaxed">
+                    Share this one-time link on WhatsApp. Delivery boy opens it,
+                    snaps a proof photo, and the order auto-marks delivered.
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  <button
+                    onClick={waShare}
+                    className="btn-primary !py-1.5 !px-3 text-xs"
+                    data-testid="dispatch-whatsapp-btn"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" /> Share on WhatsApp
+                  </button>
+                  <button
+                    onClick={copyDeliveryLink}
+                    className="btn-ghost !py-1.5 !px-3 text-xs"
+                    data-testid="dispatch-copy-btn"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copy link
+                  </button>
+                </div>
+                <div className="mt-2 text-[10px] font-mono text-[var(--text-faint)] break-all">
+                  {deliveryUrl}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Status update */}
           {next.length > 0 && (

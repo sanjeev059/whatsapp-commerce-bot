@@ -12,6 +12,7 @@ import Cart from "@/pages/Cart";
 import Checkout from "@/pages/Checkout";
 import Confirmation from "@/pages/Confirmation";
 import TrackOrder from "@/pages/TrackOrder";
+import DeliveryHandoff from "@/pages/DeliveryHandoff";
 import StoreClosed from "@/pages/StoreClosed";
 import AdminLogin from "@/pages/admin/AdminLogin";
 import AdminLayout from "@/pages/admin/AdminLayout";
@@ -111,6 +112,14 @@ function App() {
                 element={
                   <div className="app-shell">
                     <TrackOrder />
+                  </div>
+                }
+              />
+              <Route
+                path="/d/:token"
+                element={
+                  <div className="app-shell">
+                    <DeliveryHandoff />
                   </div>
                 }
               />

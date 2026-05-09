@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration-9 Delivery Handoff (one-time link + photo proof). Backend regression (6/6 pytest PASS): GET /api/delivery/<unknown> -> 404; POST /api/delivery/<unknown>/delivered -> 404; vendor /api/vendor/orders exposes delivery_token (16-char hex); GET /api/delivery/<token> for out_for_delivery returns is_actionable=true with all required fields (short_id, status, items, total, customer_name, delivery_address, vendor_name, payment_mode); POST /api/delivery/<token>/delivered with multipart 'file' returns 200 + proof_image_id, persists status=delivered, /api/uploads/<proof_id> serves the image; second POST returns 409; GET /api/delivery/<token> for non-OFD orders returns is_actionable=false and POST is blocked with 409. Frontend (Playwright): /d/<invalid> shows [data-testid=delivery-error] with copy 'Delivery link is invalid or expired.'; vendor login (sharma-wines@vendor.local) -> /admin/orders -> open order modal renders [data-testid=dispatch-section] with [dispatch-whatsapp-btn], [dispatch-copy-btn] and a delivery URL ending in '/d/<16-hex>'; existing modal pieces still intact ([modal-payment-block], [modal-copy], [modal-status-out_for_delivery], [modal-status-cancelled]); /d/<valid-token> for an OFD order renders [delivery-page] with order #ORD-1019, customer name, address, items, payment badge; [delivery-submit-btn] is correctly disabled until a photo is set on hidden [delivery-photo-input] and becomes enabled after; submitting a real PNG via multipart transitions UI to [delivery-completed] showing 'Delivered!' + [delivery-proof-img]; reopening the same /d/<token> in a fresh navigation still shows the read-only completed view (one-time-link guarantee).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/d/:token completed view", "issues": ["The proof image (data-testid=delivery-proof-img) renders at 160x160 with very low visibility on the near-black surface when the underlying photo is small/dark — consider adding a subtle inner border/shadow or a min-brightness filter so the proof is always visually distinguishable. Not a blocker."]}
+    ]
+  },
+  "scenarios_verified": [
+    {"name": "GET /api/delivery/<unknown_token> -> 404", "result": "PASS"},
+    {"name": "POST /api/delivery/<unknown_token>/delivered -> 404", "result": "PASS"},
+    {"name": "vendor_orders payload exposes delivery_token (hex)", "result": "PASS"},
+    {"name": "GET /api/delivery/<token> for OFD -> is_actionable=true + full payload", "result": "PASS"},
+    {"name": "POST /api/delivery/<token>/delivered (multipart png) -> 200 + proof_image_id", "result": "PASS"},
+    {"name": "GET /api/uploads/<proof_id> -> 200 image/*", "result": "PASS"},
+    {"name": "Second POST /api/delivery/<token>/delivered -> 409 (one-time)", "result": "PASS"},
+    {"name": "GET /api/delivery/<token> for non-OFD -> is_actionable=false; POST -> 409", "result": "PASS"},
+    {"name": "Frontend /d/<invalid> -> delivery-error", "result": "PASS"},
+    {"name": "AdminOrders modal dispatch-section + whatsapp-btn + copy-btn + /d/<16hex>", "result": "PASS"},
+    {"name": "Existing modal sections (payment, copy, status transitions) intact", "result": "PASS"},
+    {"name": "/d/<valid> -> delivery-page renders order details", "result": "PASS"},
+    {"name": "delivery-submit-btn disabled until photo set, enabled after", "result": "PASS"},
+    {"name": "POST proof from frontend -> delivery-completed + delivery-proof-img", "result": "PASS"},
+    {"name": "Reopen /d/<token> after success -> read-only completed view", "result": "PASS"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_delivery_handoff.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "(Polish, optional) Improve contrast/border on delivery-proof-img on the completed screen so dark/small proof photos remain visibly distinguishable.",
+    "(Doc / next agent) The dispatch UI in AdminOrders shows for orders in 'accepted' state (canDispatch = ['accepted','out_for_delivery']), but the backend only sets is_actionable=true when status=='out_for_delivery'. So a delivery boy who opens the link while the order is still 'accepted' will see the 'please ask the vendor to dispatch it before marking delivered' soft-block until the vendor moves the order to OFD. This is consistent with the original spec and is not a bug, but worth calling out in vendor-facing copy ('Move the order to Out for delivery before sharing the link, OR keep it in Accepted and the boy will be soft-blocked until you advance it')."
+  ],
+  "critical_code_review_comments": [
+    "DeliveryHandoff.jsx submits with header 'Content-Type: multipart/form-data' explicitly — axios should derive the multipart boundary itself. Modern axios usually overrides if FormData is detected, and the server accepted it here, but explicitly setting 'multipart/form-data' without the boundary is a known footgun in some axios builds. Recommend deleting that header line and letting axios set it. Currently passes in this environment but flag for safety.",
+    "AdminOrders.jsx canDispatch lets vendor share a link while the order is in 'accepted' (token works, but the page is soft-blocked). UX clarity: either gate the dispatch UI to status=='out_for_delivery' (matches backend is_actionable) OR change backend is_actionable to also accept 'accepted'. Pick one source of truth.",
+    "Backend POST /delivery/{token}/delivered allows any image up to MAX_UPLOAD_BYTES — an 8-byte 1px PNG is accepted. Optionally enforce min-bytes (e.g. >2KB) to avoid trivial 'proofs'.",
+    "Token randomness: server generates delivery_token via secrets/uuid (16-hex observed). 16 hex chars = 64 bits — adequate for short-lived one-time link, but consider 24+ chars for longer audit retention.",
+    "server.py is now ~1373 lines — same recommendation as iter7/8: split into routers (auth, master, vendor, public, delivery)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_delivery_handoff.py (new)",
+    "/app/test_reports/pytest/iter9_results.xml (generated)"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all 7 listed flows verified end-to-end)"},
+  "test_credentials": "Vendor sharma-wines@vendor.local / sharma-wines123 (unchanged). Master master@localcommerce.in / master123 (not used this iteration).",
+  "seed_data_creation": "No new vendor/customer seed rows created. Test reused existing vendor 'sharma-wines' order ORD-1019 (RL Test 1, COD, ₹30) — its terminal status is now 'delivered' with a tiny 8x8 red PNG attached as delivery_proof_image_id. If the main agent wants to re-test with a fresh order, run the storefront -> payment_verified -> accepted -> out_for_delivery flow to mint a new delivery_token.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Canonical iter-9 backend regression: /app/backend/tests/test_delivery_handoff.py (6 cases). Helper _get_or_create_dispatchable_order will mint a fresh COD order via storefront if no accepted/OFD order with delivery_token is found. /tmp/proof.png is a tiny synthesized PNG safe to upload. Frontend testids relied on: delivery-error, delivery-page, delivery-payment-badge, delivery-address, delivery-items, delivery-photo-input, delivery-photo-pick, delivery-photo-preview, delivery-submit-btn, delivery-completed, delivery-proof-img — and AdminOrders modal: dispatch-section, dispatch-whatsapp-btn, dispatch-copy-btn. WhatsApp share button uses window.open(wa.me/...) — verifying existence is sufficient (don't try to follow the popup in headless).",
+  "rca of the issue": "No bugs blocking merge. The only nuance is the canDispatch (frontend, accepts 'accepted'+'OFD') vs is_actionable (backend, only 'OFD') mismatch — by-design soft-block when the boy opens the link while order is 'accepted'. Documented in action_items."
+}

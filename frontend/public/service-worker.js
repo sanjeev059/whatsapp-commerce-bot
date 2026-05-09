@@ -60,10 +60,14 @@ self.addEventListener("push", (event) => {
   const title =
     payload.type === "new_order"
       ? `New order · ${payload.short_id || ""}`.trim()
-      : payload.title || "Local Commerce";
+      : payload.type === "delivered"
+      ? `Delivered · ${payload.short_id || ""}`.trim()
+      : payload.title || "GharSip";
   const body =
     payload.type === "new_order"
       ? `${payload.customer || "Customer"} · ₹${(payload.total || 0).toLocaleString("en-IN")}`
+      : payload.type === "delivered"
+      ? `${payload.customer || "Customer"} · ₹${(payload.total || 0).toLocaleString("en-IN")} — proof photo received`
       : payload.body || "You have a notification";
 
   const options = {

@@ -123,8 +123,13 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - Move rate limiter from in-memory to Redis when scaling beyond 1 backend pod
 
 ### P4 — SaaS-grade
-- Stripe billing for vendor subscriptions (master can mark `subscription_expires_at`)
+- ✅ Manual UPI subscription with master-controlled paywall (DONE iter-10).
 - Per-vendor analytics + peak-hour insights
 - Customer search, recently-ordered
 - Per-product image GridFS for high-image-count tenants
 - Multi-region pricing (replace hardcoded IST in `is_night_active`)
+
+### Explicitly de-scoped by user (Feb 2026)
+- ❌ Vendor self-onboarding `/apply` page — user prefers to onboard vendors manually via marketing team.
+- ❌ `/find-near-me` customer discovery page — not needed at this stage; vendors share their per-store QR directly.
+- ❌ Stripe automated subscription billing — replaced with manual UPI QR + master toggle (iter-10).

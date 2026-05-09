@@ -21,6 +21,8 @@ import {
   BarChart3,
   AlertTriangle,
   Wallet,
+  Receipt,
+  Tag,
 } from "lucide-react";
 import VendorBillingPaywall from "@/components/VendorBillingPaywall";
 
@@ -149,12 +151,15 @@ export default function AdminLayout() {
   const masterLinks = [
     { to: "/admin/master", end: true, icon: LayoutDashboard, label: "Overview" },
     { to: "/admin/master/vendors", icon: Users, label: "Vendors" },
+    { to: "/admin/master/payments", icon: Receipt, label: "Payments" },
+    { to: "/admin/master/offers", icon: Tag, label: "Offers" },
     { to: "/admin/master/billing", icon: Wallet, label: "Billing" },
   ];
   const vendorLinks = [
     { to: "/admin", end: true, icon: LayoutDashboard, label: "Dashboard" },
     { to: "/admin/orders", icon: ListOrdered, label: "Orders" },
     { to: "/admin/products", icon: Package, label: "Products" },
+    { to: "/admin/offers", icon: Tag, label: "Offers" },
     { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
     { to: "/admin/store", icon: Store, label: "Store settings" },
   ];

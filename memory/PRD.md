@@ -90,6 +90,25 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
   - Landing CTA renamed `Try the demo store` → `Liquor Store`.
 - ✅ Verified by testing agent (iteration_10.json): 9/9 backend pytest pass + 12/12 frontend flows including paywall trigger/lift, expiry persistence, warning banner, badge removal, title.
 
+### Phase 7 — Launch readiness sprint (Feb 2026)
+Seven features shipped together to legally and operationally harden the platform before vendor onboarding:
+
+- **A) Payments audit log** — `db.payments` collection. Master page `/admin/master/payments` with summary cards, vendor-list "Mark paid · 30d" buttons, and full audit trail. `POST /api/master/vendors/{id}/payments {amount_inr, days_extended, txn_note}` records the row AND auto-extends `subscription_expires_at` from later-of(current expiry, today). `GET /api/master/payments` lists rows with vendor_name joined.
+- **B) Strong vendor T&C** — `CreateVendorModal` now embeds an 8-clause legal block (merchant-of-record, indemnity, license compliance, age verification at delivery, platform-as-tech-only, payment flow, deactivation rights, governing law). Vendor types full legal name as e-signature. Backend persists `tos_accepted=true`, `tos_signature_name`, `tos_accepted_at`, `tos_accepted_ip` on the vendor doc. Submission rejected if signature blank.
+- **C) Customer 21+ age gate** — `<AgeGate>` full-screen overlay shown on first visit to `/store/<slug>`. Lists 4 disclaimer bullets (platform-as-tech-only, store-as-seller, 21+ requirement, indemnity). Accept persists in `localStorage["gharsip:age-ok:<slug>"]` for 30 days; reject redirects to google.com. Per-slug memory so each new vendor triggers a fresh gate. `<StorefrontShell>` wraps every `/store/:slug/*` route via React Router nested routes.
+- **D) Multi-vendor pricing isolation** — verified clean (already implemented via `vendor_id`-scoped products). Test added to confirm `/api/storefront/<a>` and `/api/storefront/<b>` never cross-leak.
+- **E) Vendor category selection** — Master-defined enum of 4 categories. Vendor toggles `enabled_categories` on `/admin/store`; storefront filters categories array by this list. `null`/`[]` defaults to all (back-compat). Master also picks categories at create time.
+- **F) Customer search** — Working search bar on `/store/<slug>/menu`. Filters product list (name + unit + category) live; renders match results with thumbnails or shows "No results". Empty query falls back to category grid.
+- **G) Discount/Offers system** — `db.offers` collection with `{code, title, discount_type:percent|flat, discount_value, min_order_amount, max_discount_amount, expires_at, usage_limit_total, uses, is_active, created_by}`. CRUD endpoints:
+  - Vendor: `GET/POST/PATCH/DELETE /api/vendor/offers`
+  - Master: `GET /api/master/offers?vendor_id=`, `POST /api/master/vendors/{vid}/offers`, `PATCH/DELETE /api/master/offers/{oid}`
+  - Customer validation: `POST /api/storefront/<slug>/offers/validate {code, cart_total}` returns `{discount_amount, new_total}`
+  - Order placement: `POST /api/orders` accepts `offer_code`; server re-validates, applies discount to `total`, persists `applied_offer` on order, atomically increments `uses` counter.
+  - Vendor UI: `/admin/offers` (cards + create modal). Master UI: `/admin/master/offers` with vendor dropdown.
+  - Customer UI: `<CouponInput>` on Cart with validation toast; bill summary shows discount line; checkout sends `offer_code`.
+
+- ✅ Verified by testing agent (iteration_11.json): 14/14 backend pytest pass + 100% frontend testid coverage. Two minor non-blocking notes: a hydration warning in `<option>` (cosmetic), and disabled-vendor rows remain visible on the vendor list (by design for audit trail).
+
 ## Files of Reference
 - Backend: `backend/server.py`, `backend/seed_data.py`, `backend/.env` (VAPID keys), `backend/tests/{test_multitenant,test_iter4_features,test_iter6_features}.py`
 - Frontend:

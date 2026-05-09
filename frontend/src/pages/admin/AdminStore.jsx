@@ -39,6 +39,9 @@ export default function AdminStore() {
           payment_qr_url: data.payment_qr_url || "",
           opening_time: data.opening_time || "10:00",
           closing_time: data.closing_time || "23:00",
+          enabled_categories: data.enabled_categories && data.enabled_categories.length > 0
+            ? data.enabled_categories
+            : ["liquor", "cigarettes", "snacks", "food"],
           night_pricing_enabled: !!data.night_pricing_enabled,
           night_start: data.night_start || "22:00",
           night_end: data.night_end || "06:00",
@@ -227,6 +230,48 @@ export default function AdminStore() {
             />
           </Field>
         </div>
+
+        <Field label="Categories you sell">
+          <div className="grid grid-cols-2 gap-2 pt-1" data-testid="store-categories">
+            {[
+              { id: "liquor", label: "🍻 Liquor" },
+              { id: "cigarettes", label: "🚬 Cigarettes" },
+              { id: "snacks", label: "🍿 Snacks" },
+              { id: "food", label: "🍔 Food" },
+            ].map((c) => {
+              const active = (form.enabled_categories || []).includes(c.id);
+              return (
+                <label
+                  key={c.id}
+                  className={`px-3 py-2 rounded-lg border text-sm cursor-pointer flex items-center gap-2 ${
+                    active
+                      ? "border-[var(--accent)] bg-[rgba(34,210,122,0.08)]"
+                      : "border-[var(--border)] bg-[var(--surface-2)]"
+                  }`}
+                  data-testid={`store-cat-${c.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-[var(--accent)]"
+                    checked={active}
+                    onChange={() =>
+                      setForm({
+                        ...form,
+                        enabled_categories: active
+                          ? form.enabled_categories.filter((x) => x !== c.id)
+                          : [...(form.enabled_categories || []), c.id],
+                      })
+                    }
+                  />
+                  <span>{c.label}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-[var(--text-faint)] mt-2">
+            Customers will only see categories you tick. Untick to hide a category from your storefront.
+          </div>
+        </Field>
 
         <button
           onClick={save}

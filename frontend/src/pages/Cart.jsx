@@ -2,6 +2,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Trash2, ShoppingBag, AlertTriangle } from "lucide-react";
 import Header from "@/components/Header";
 import QuantityStepper from "@/components/QuantityStepper";
+import CouponInput from "@/components/CouponInput";
 import { useCart } from "@/context/CartContext";
 import { formatINR } from "@/lib/format";
 import { resolveUrl } from "@/lib/apiClient";
@@ -160,6 +161,8 @@ export default function Cart() {
           );
         })}
 
+        <CouponInput slug={slug} cartTotal={totals.total} />
+
         <div className="surface p-4" data-testid="cart-bill-summary">
           <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-3">
             Bill summary
@@ -167,8 +170,16 @@ export default function Cart() {
           <Row label="Subtotal" value={formatINR(totals.total)} />
           <Row label="Delivery fee" value="FREE" valueClass="text-[var(--accent)] font-semibold" />
           <Row label="Taxes" value="Included" valueClass="text-[var(--text-faint)]" />
+          {totals.discount > 0 && (
+            <Row
+              label="Coupon discount"
+              value={`− ${formatINR(totals.discount)}`}
+              valueClass="text-[var(--accent)] font-bold"
+              testid="cart-discount-row"
+            />
+          )}
           <div className="my-3 border-t border-[var(--border-soft)]" />
-          <Row label="Total" value={formatINR(totals.total)} bold testid="cart-total" />
+          <Row label="Total payable" value={formatINR(totals.payable)} bold testid="cart-total" />
         </div>
       </div>
 
@@ -185,7 +196,7 @@ export default function Cart() {
           >
             {liquorBlock
               ? "Add more to checkout"
-              : `Proceed to Checkout · ${formatINR(totals.total)}`}
+              : `Proceed to Checkout · ${formatINR(totals.payable)}`}
           </button>
         </div>
       </div>

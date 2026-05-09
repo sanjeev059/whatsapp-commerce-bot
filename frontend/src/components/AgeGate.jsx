@@ -4,7 +4,7 @@ import { ShieldCheck, AlertTriangle } from "lucide-react";
 const KEY = (slug) => `gharsip:age-ok:${slug}`;
 const TTL_DAYS = 30;
 
-export default function AgeGate({ slug, vendorName, children }) {
+export default function AgeGate({ slug, vendorName, onAccept, children }) {
   const [verified, setVerified] = useState(null); // null=loading, true/false
 
   useEffect(() => {
@@ -16,11 +16,14 @@ export default function AgeGate({ slug, vendorName, children }) {
         return;
       }
       const ok = JSON.parse(raw);
-      if (ok.exp && ok.exp > Date.now()) setVerified(true);
-      else setVerified(false);
+      if (ok.exp && ok.exp > Date.now()) {
+        setVerified(true);
+        onAccept?.();
+      } else setVerified(false);
     } catch {
       setVerified(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   const accept = () => {
@@ -31,6 +34,7 @@ export default function AgeGate({ slug, vendorName, children }) {
       );
     } catch {}
     setVerified(true);
+    onAccept?.();
   };
 
   const reject = () => {

@@ -937,7 +937,7 @@ async def vendor_analytics(days: int = 30, user=Depends(require_vendor)):
         "paid_revenue": round(paid_revenue, 2),
         "avg_order_value": round(paid_revenue / paid_orders, 2) if paid_orders else 0.0,
         "hourly": hourly,
-        "day_of_week": [{"day": DAY_NAMES[i], **dow[i]} for i in range(7)],
+        "day_of_week": [{**dow[i], "day": DAY_NAMES[i]} for i in range(7)],
         "peak_hour": peak_hour["hour"] if peak_hour["orders"] > 0 else None,
         "peak_day": DAY_NAMES[peak_dow_idx] if dow[peak_dow_idx]["orders"] > 0 else None,
         "category_revenue": [{"category": k, "revenue": round(v, 2)} for k, v in

@@ -70,6 +70,26 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - Vendor flow: `AdminOrders.jsx` modal renders **Send to delivery boy** section (only when order status = `out_for_delivery`) with **Share on WhatsApp** (`wa.me` deep link with pre-filled order summary + delivery URL) + **Copy link** buttons.
 - ✅ Verified by testing agent (iteration_9.json): 6/6 backend pytest pass + 7/7 frontend flows including invalid-token, dispatch UI, photo upload via multipart, completed view, and one-time-link reopen guarantee.
 
+### Phase 6 — Manual subscription billing (Feb 2026)
+- **Manual UPI subscription model** (no Stripe — master-controlled). Master sets a single platform UPI QR; vendors see it on a paywall when their subscription is inactive or expired.
+- Backend additions:
+  - `db.settings` doc `{id:"platform_billing", upi_id, upi_name, whatsapp, monthly_fee_inr=5000, note_to_vendor}`.
+  - `GET/PATCH /api/master/billing` (master-only) for editing.
+  - `GET /api/billing/qr.png` (public) generates a UPI-intent QR (`upi://pay?pa=<upi>&pn=<name>&am=<fee>&cu=INR&tn=GharSip subscription`). Cached 5 min.
+  - `GET /api/vendor/billing` (vendor-only) returns `{platform: {...}, subscription: {active, expires_at, days_remaining, is_expired}}`.
+  - `subscription_active` and `subscription_expires_at` already present on vendor schema; master can edit both via existing `PATCH /api/master/vendors/{id}`.
+- Frontend additions:
+  - **Master Billing page** `/admin/master/billing` (`MasterBilling.jsx`): UPI ID + name + fee + WhatsApp + note editor with **live QR preview** (cache-busted) and **download QR** button. New "Billing" link in the master sidebar (Wallet icon).
+  - **Master Vendors page** (`MasterVendors.jsx`): new **Sub. Expiry** column showing date + "N days left" / "expired Nd ago"; calendar-icon button per row opens `window.prompt('YYYY-MM-DD')` to set/clear expiry (sets to 23:59 IST so the day counts).
+  - **Vendor Paywall** (`VendorBillingPaywall.jsx`): full-screen lock when `subscription.is_expired || !active` — shows reason, fee, scannable platform QR, copy-UPI button, WhatsApp prefilled message ("paid for &lt;vendor&gt;, please reactivate"), and sign-out. AdminLayout gates `<Outlet/>` behind it across all vendor routes.
+  - **Vendor warning banner** when `days_remaining <= 7` (amber `[data-testid=sub-warning-banner]`).
+  - AdminLayout polls `/api/vendor/billing` every 60s so master flipping `subscription_active=true` reflects without re-login.
+- Other launch-ready tweaks shipped this iteration:
+  - Stripped Emergent badge + `emergent-main.js` + PostHog tracker from `index.html`.
+  - Document title → `GharSip — Hyperlocal Liquor Delivery`.
+  - Landing CTA renamed `Try the demo store` → `Liquor Store`.
+- ✅ Verified by testing agent (iteration_10.json): 9/9 backend pytest pass + 12/12 frontend flows including paywall trigger/lift, expiry persistence, warning banner, badge removal, title.
+
 ## Files of Reference
 - Backend: `backend/server.py`, `backend/seed_data.py`, `backend/.env` (VAPID keys), `backend/tests/{test_multitenant,test_iter4_features,test_iter6_features}.py`
 - Frontend:

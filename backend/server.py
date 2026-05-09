@@ -514,10 +514,32 @@ async def storefront_qr(slug: str, request: Request, size: int = 512):
         content=buf.getvalue(),
         media_type="image/png",
         headers={
-            "Cache-Control": "public, max-age=300",
+            "Cache-Control": "public, max-age=86400",
             "X-Storefront-URL": target_url,
         },
     )
+
+
+@api.get("/storefront/{slug}/manifest.json")
+async def vendor_manifest(slug: str, request: Request):
+    """Per-vendor PWA manifest. Customers landing on /store/<slug> point at this so 'Add to Home Screen' opens directly to that vendor."""
+    v = await db.vendors.find_one({"slug": slug, "subscription_active": True}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Store not found")
+    return {
+        "name": v["name"],
+        "short_name": v["name"][:12],
+        "description": f"Order from {v['name']} — fast delivery.",
+        "start_url": f"/store/{slug}",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "theme_color": "#22d27a",
+        "background_color": "#07080b",
+        "icons": [
+            {"src": "/favicon.ico", "sizes": "64x64 32x32 24x24 16x16", "type": "image/x-icon"}
+        ],
+    }
 
 
 # ==================== orders (public POST + tracking GET) ====================

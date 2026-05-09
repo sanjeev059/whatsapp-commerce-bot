@@ -48,15 +48,18 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - **Geolocation**: capture-location button at checkout; Google Maps link in vendor order modal.
 - **Bulk CSV import**: dropzone modal + parser + preview + replace-existing toggle + 1000-row cap.
 
-### Phase 4 — Insights & abuse-prevention (this session)
-- **Vendor analytics** (`/admin/analytics`): peak-hour bar chart (IST), day-of-week chart, night-pricing GMV uplift (₹ + %), top-5 products, category mix. Range chips 7/30/90 days. Powered by `GET /api/vendor/analytics`.
-- **Reverse geocoding**: customer Checkout's "share live location" button now also auto-fills the empty address from `GET /api/geocode/reverse` (OpenStreetMap Nominatim, no API key, rate-limited 20/min/IP server-side).
-- **Anonymous order rate-limit**: in-memory sliding window, **3 orders / minute** + **12 orders / hour** per IP. Returns 429 with `Retry-After`. Sliding-window bucket keyed per `(path, window+limit, IP)` so stacked limits don't conflict. Customer Checkout handles 429 with a friendly toast.
+### Phase 4 — Insights & abuse-prevention
+- **Vendor analytics** (`/admin/analytics`): peak-hour bar chart (IST), day-of-week chart, night-pricing GMV uplift (₹ + %), top-5 products, category mix. Range chips 7/30/90 days.
+- **Reverse geocoding**: customer Checkout's "share live location" auto-fills the empty address (OpenStreetMap Nominatim, no API key, rate-limited 20/min/IP server-side).
+- **Anonymous order rate-limit**: 3/min + 12/hr per IP, sliding window in-memory, 429 with Retry-After. Customer Checkout handles 429 gracefully.
 
-### Verified by testing agent (iteration_7.json)
-- Backend: 14/14 new pytest pass + all regressions green. One HIGH bug found (day_of_week labels were integers due to dict-spread overwrite) — fixed in this session, day labels now correctly Mon–Sun.
-- Frontend: vendor /admin/analytics renders all 13 expected testids; recharts SVG bars present; range chips fire correct API calls; master_admin properly redirected away; mobile bottom nav drops Store settings to fit 4 items.
-- Reverse-geocode UI flow not exercised in headless (cart-empty selector issue) — backend endpoint independently verified live against Nominatim.
+### Phase 5 — Launch hardening + Customer QR/PWA (this session)
+- **CORS** is now env-driven: when `CORS_ORIGINS` is set, allow_credentials=True with the whitelist; otherwise dev-fallback `*` without credentials. Documented in `/app/memory/test_credentials.md`.
+- **JWT_SECRET** rotated to a strong 86-char URL-safe random value. Documented for prod rotation in Emergent env.
+- **Default-password enforcement**: `password_must_change` flag on master + seed vendor + every new vendor onboarded by master. Exposed via `/auth/me` and cleared on `/auth/change-password`. AdminLayout shows a red `seed-password-banner` that routes to `/admin/store` (vendor) or `/admin/master/security` (master). Master security page is a new route at `/admin/master/security`.
+- **Per-vendor QR code**: `GET /api/storefront/<slug>/qr.png?size=N` returns a server-generated PNG. `<StorefrontQRCard>` on `/admin/store` shows it with **Download / Print / Share** buttons. Master onboarding modal also embeds a QR preview + Print button so the master can hand the printable poster to the vendor at sign-up.
+- **Customer Add-to-Home-Screen**: `<PerVendorPWA>` injects a per-vendor manifest into `<head>` on `/store/<slug>` (server-rendered at `/api/storefront/<slug>/manifest.json` so no FOUC) + iOS apple-* meta tags. `<InstallAppHint>` shows a bottom bar that catches Android `beforeinstallprompt` for one-tap install or shows the iOS Safari Share→Add-to-Home modal — exactly like Codespaces.
+- ✅ Verified by testing agent (iteration_8.json): 11/11 backend tests pass + all frontend testids verified including blob/server manifest, QR PNG, master security route, credentials modal QR. Test cleanup also removed 8 leftover test vendors from prior iterations.
 
 ## Files of Reference
 - Backend: `backend/server.py`, `backend/seed_data.py`, `backend/.env` (VAPID keys), `backend/tests/{test_multitenant,test_iter4_features,test_iter6_features}.py`

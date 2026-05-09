@@ -3,16 +3,18 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 const CartContext = createContext(null);
 const STORAGE_KEY = "lc_cart_v2";
 
-// Cart shape in storage: { slug: string|null, items: [...] }
-// If user navigates to a different slug, we reset items so two stores' carts don't mix.
+// Cart shape in storage: { slug: string|null, items: [...], appliedOffer: {...}|null }
+// If user navigates to a different slug, we reset items + offer so two stores' carts don't mix.
 
 export function CartProvider({ children }) {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : { slug: null, items: [] };
+      return raw
+        ? { appliedOffer: null, ...JSON.parse(raw) }
+        : { slug: null, items: [], appliedOffer: null };
     } catch {
-      return { slug: null, items: [] };
+      return { slug: null, items: [], appliedOffer: null };
     }
   });
 
@@ -26,7 +28,7 @@ export function CartProvider({ children }) {
   const bindSlug = (slug) => {
     setState((s) => {
       if (s.slug === slug) return s;
-      return { slug, items: [] };
+      return { slug, items: [], appliedOffer: null };
     });
   };
 
@@ -50,7 +52,8 @@ export function CartProvider({ children }) {
               qty: 1,
             },
           ];
-      return { ...s, items };
+      // Cart changed → invalidate offer so user re-applies (server re-validates anyway)
+      return { ...s, items, appliedOffer: null };
     });
   };
 
@@ -61,13 +64,21 @@ export function CartProvider({ children }) {
         qty <= 0
           ? s.items.filter((p) => p.id !== id)
           : s.items.map((p) => (p.id === id ? { ...p, qty } : p)),
+      appliedOffer: null,
     }));
   };
 
   const remove = (id) =>
-    setState((s) => ({ ...s, items: s.items.filter((p) => p.id !== id) }));
-  const clear = () => setState((s) => ({ ...s, items: [] }));
+    setState((s) => ({
+      ...s,
+      items: s.items.filter((p) => p.id !== id),
+      appliedOffer: null,
+    }));
+  const clear = () => setState((s) => ({ ...s, items: [], appliedOffer: null }));
   const getQty = (id) => items.find((p) => p.id === id)?.qty || 0;
+
+  const applyOffer = (offer) => setState((s) => ({ ...s, appliedOffer: offer }));
+  const clearOffer = () => setState((s) => ({ ...s, appliedOffer: null }));
 
   const totals = useMemo(() => {
     const byCat = items.reduce((acc, it) => {
@@ -76,8 +87,11 @@ export function CartProvider({ children }) {
     }, {});
     const total = items.reduce((s, it) => s + it.price * it.qty, 0);
     const count = items.reduce((s, it) => s + it.qty, 0);
-    return { total, count, byCat };
-  }, [items]);
+    const discount = state.appliedOffer?.discount_amount || 0;
+    const payable = Math.max(0, Math.round(total - discount));
+    // total = subtotal (un-discounted); payable = subtotal - applied coupon discount.
+    return { total, payable, discount, count, byCat };
+  }, [items, state.appliedOffer]);
 
   const value = {
     slug: state.slug,
@@ -89,6 +103,9 @@ export function CartProvider({ children }) {
     getQty,
     totals,
     bindSlug,
+    appliedOffer: state.appliedOffer,
+    applyOffer,
+    clearOffer,
   };
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

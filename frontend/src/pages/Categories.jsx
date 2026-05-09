@@ -10,6 +10,7 @@ export default function Categories() {
   const { slug } = useParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const { totals, bindSlug } = useCart();
 
@@ -23,6 +24,27 @@ export default function Categories() {
       .catch((e) => setError(e?.response?.data?.detail || "Failed to load"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // Flat list of products for search
+  const allProducts = (data?.categories || []).flatMap((c) =>
+    c.subgroups.flatMap((s) =>
+      s.products.map((p) => ({
+        ...p,
+        category_id: c.id,
+        category_name: c.name,
+        category_icon: c.icon,
+      }))
+    )
+  );
+  const q = query.trim().toLowerCase();
+  const matched = q
+    ? allProducts.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.unit || "").toLowerCase().includes(q) ||
+          (p.category_name || "").toLowerCase().includes(q)
+      )
+    : [];
 
   return (
     <div className="min-h-[100dvh] pb-32" data-testid="categories-page">
@@ -63,76 +85,141 @@ export default function Categories() {
         <div className="mt-4 flex items-center gap-2 px-3 surface-2 !rounded-xl">
           <Search className="w-4 h-4 text-[var(--text-faint)]" />
           <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for beer, snacks, food…"
             className="bg-transparent border-0 outline-none flex-1 py-2.5 text-sm placeholder:text-[var(--text-faint)]"
             data-testid="search-input"
-            disabled
           />
-          <span className="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">
-            soon
-          </span>
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="text-[10px] text-[var(--text-faint)] uppercase tracking-wider hover:text-white"
+              data-testid="search-clear"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
       <div className="px-5 pt-6">
-        <h2
-          className="text-[26px] font-extrabold tracking-tight"
-          data-testid="categories-heading"
-        >
-          What are you craving?
-        </h2>
-        <p className="text-sm text-[var(--text-muted)] mt-1">
-          Tap a category to explore the menu.
-        </p>
-
-        {error && (
-          <div
-            className="mt-6 surface p-4 text-sm text-[var(--danger)]"
-            data-testid="catalog-error"
-          >
-            {error}
-          </div>
-        )}
-
-        {!data ? (
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="surface aspect-[4/5] animate-pulse" />
-            ))}
-          </div>
+        {q ? (
+          <SearchResults
+            slug={slug}
+            results={matched}
+            query={q}
+            onClickProduct={(p) => navigate(`/store/${slug}/c/${p.category_id}`)}
+          />
         ) : (
-          <div className="mt-5 grid grid-cols-2 gap-3" data-testid="categories-grid">
-            {data.categories
-              .filter((cat) => cat.subgroups.some((s) => s.products.length > 0))
-              .map((cat, i) => (
-                <CategoryCard
-                  key={cat.id}
-                  category={cat}
-                  onClick={() => navigate(`/store/${slug}/c/${cat.id}`)}
-                  delay={i * 60}
-                />
-              ))}
-          </div>
-        )}
+          <>
+            <h2
+              className="text-[26px] font-extrabold tracking-tight"
+              data-testid="categories-heading"
+            >
+              What are you craving?
+            </h2>
+            <p className="text-sm text-[var(--text-muted)] mt-1">
+              Tap a category to explore the menu.
+            </p>
 
-        {/* Promo banner */}
-        <div className="mt-6 surface p-4 flex items-center gap-3 fade-up">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-            style={{ background: "rgba(255,181,71,0.12)" }}
-          >
-            🎉
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold text-sm">Free delivery tonight</div>
-            <div className="text-xs text-[var(--text-muted)]">
-              Min liquor order {formatINR(1000)} · No coupon needed
+            {error && (
+              <div
+                className="mt-6 surface p-4 text-sm text-[var(--danger)]"
+                data-testid="catalog-error"
+              >
+                {error}
+              </div>
+            )}
+
+            {!data ? (
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="surface aspect-[4/5] animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 grid grid-cols-2 gap-3" data-testid="categories-grid">
+                {data.categories
+                  .filter((cat) => cat.subgroups.some((s) => s.products.length > 0))
+                  .map((cat, i) => (
+                    <CategoryCard
+                      key={cat.id}
+                      category={cat}
+                      onClick={() => navigate(`/store/${slug}/c/${cat.id}`)}
+                      delay={i * 60}
+                    />
+                  ))}
+              </div>
+            )}
+
+            {/* Promo banner */}
+            <div className="mt-6 surface p-4 flex items-center gap-3 fade-up">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+                style={{ background: "rgba(255,181,71,0.12)" }}
+              >
+                🎉
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold text-sm">Free delivery tonight</div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  Min liquor order {formatINR(1000)} · No coupon needed
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <StickyCartBar />
+    </div>
+  );
+}
+
+function SearchResults({ results, query, onClickProduct }) {
+  if (results.length === 0) {
+    return (
+      <div className="surface p-8 text-center mt-4" data-testid="search-empty">
+        <div className="text-3xl">🔍</div>
+        <div className="font-semibold mt-3">No products match "{query}"</div>
+        <div className="text-xs text-[var(--text-muted)] mt-1">
+          Try a different word or clear the search to browse categories.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="search-results">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] font-semibold mb-3">
+        {results.length} match{results.length === 1 ? "" : "es"}
+      </div>
+      <div className="space-y-2">
+        {results.slice(0, 30).map((p) => (
+          <button
+            key={p.id}
+            onClick={() => onClickProduct(p)}
+            className="w-full surface p-3 flex items-center gap-3 text-left hover:border-[var(--border)]"
+            data-testid={`search-result-${p.id}`}
+          >
+            {p.image ? (
+              <img src={p.image} alt={p.name} className="w-12 h-12 rounded-lg object-cover" />
+            ) : (
+              <div className="w-12 h-12 rounded-lg surface-2 flex items-center justify-center text-xl">
+                {p.category_icon}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm truncate">{p.name}</div>
+              <div className="text-[11px] text-[var(--text-faint)] truncate">
+                {p.category_name}
+                {p.unit && ` · ${p.unit}`}
+              </div>
+            </div>
+            <div className="text-sm font-extrabold">{formatINR(p.price)}</div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

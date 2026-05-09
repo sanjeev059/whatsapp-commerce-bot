@@ -61,6 +61,54 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - **Customer Add-to-Home-Screen**: `<PerVendorPWA>` injects a per-vendor manifest into `<head>` on `/store/<slug>` (server-rendered at `/api/storefront/<slug>/manifest.json` so no FOUC) + iOS apple-* meta tags. `<InstallAppHint>` shows a bottom bar that catches Android `beforeinstallprompt` for one-tap install or shows the iOS Safari Share→Add-to-Home modal — exactly like Codespaces.
 - ✅ Verified by testing agent (iteration_8.json): 11/11 backend tests pass + all frontend testids verified including blob/server manifest, QR PNG, master security route, credentials modal QR. Test cleanup also removed 8 leftover test vendors from prior iterations.
 
+### Phase 5 — Delivery boy handoff (Feb 2026)
+- **One-time delivery link** with **mandatory photo proof** to close the trust gap on dispatched orders, without requiring the delivery boy to install anything.
+- Backend: `delivery_token` (16-char hex) auto-generated on every order. Backfill migration ran for legacy orders.
+  - `GET /api/delivery/{token}` → returns sanitized order payload + `is_actionable` (true only when status = `out_for_delivery`).
+  - `POST /api/delivery/{token}/delivered` (multipart `file`) → enforces photo upload (≤3MB, image/* MIME), persists `proof_image_id`, flips status to `delivered`, returns 409 on duplicate attempts (one-time-link guarantee).
+- Frontend: `/d/:token` route mounted in `App.js`, page = `DeliveryHandoff.jsx` — strips Authorization header, shows order details, drop-off info, COD-collect alert, hidden file input wired to camera (`capture="environment"`), preview + retake, full-width "Mark Delivered" CTA disabled until photo present, success view shows the proof image.
+- Vendor flow: `AdminOrders.jsx` modal renders **Send to delivery boy** section (only when order status = `out_for_delivery`) with **Share on WhatsApp** (`wa.me` deep link with pre-filled order summary + delivery URL) + **Copy link** buttons.
+- ✅ Verified by testing agent (iteration_9.json): 6/6 backend pytest pass + 7/7 frontend flows including invalid-token, dispatch UI, photo upload via multipart, completed view, and one-time-link reopen guarantee.
+
+### Phase 6 — Manual subscription billing (Feb 2026)
+- **Manual UPI subscription model** (no Stripe — master-controlled). Master sets a single platform UPI QR; vendors see it on a paywall when their subscription is inactive or expired.
+- Backend additions:
+  - `db.settings` doc `{id:"platform_billing", upi_id, upi_name, whatsapp, monthly_fee_inr=5000, note_to_vendor}`.
+  - `GET/PATCH /api/master/billing` (master-only) for editing.
+  - `GET /api/billing/qr.png` (public) generates a UPI-intent QR (`upi://pay?pa=<upi>&pn=<name>&am=<fee>&cu=INR&tn=GharSip subscription`). Cached 5 min.
+  - `GET /api/vendor/billing` (vendor-only) returns `{platform: {...}, subscription: {active, expires_at, days_remaining, is_expired}}`.
+  - `subscription_active` and `subscription_expires_at` already present on vendor schema; master can edit both via existing `PATCH /api/master/vendors/{id}`.
+- Frontend additions:
+  - **Master Billing page** `/admin/master/billing` (`MasterBilling.jsx`): UPI ID + name + fee + WhatsApp + note editor with **live QR preview** (cache-busted) and **download QR** button. New "Billing" link in the master sidebar (Wallet icon).
+  - **Master Vendors page** (`MasterVendors.jsx`): new **Sub. Expiry** column showing date + "N days left" / "expired Nd ago"; calendar-icon button per row opens `window.prompt('YYYY-MM-DD')` to set/clear expiry (sets to 23:59 IST so the day counts).
+  - **Vendor Paywall** (`VendorBillingPaywall.jsx`): full-screen lock when `subscription.is_expired || !active` — shows reason, fee, scannable platform QR, copy-UPI button, WhatsApp prefilled message ("paid for &lt;vendor&gt;, please reactivate"), and sign-out. AdminLayout gates `<Outlet/>` behind it across all vendor routes.
+  - **Vendor warning banner** when `days_remaining <= 7` (amber `[data-testid=sub-warning-banner]`).
+  - AdminLayout polls `/api/vendor/billing` every 60s so master flipping `subscription_active=true` reflects without re-login.
+- Other launch-ready tweaks shipped this iteration:
+  - Stripped Emergent badge + `emergent-main.js` + PostHog tracker from `index.html`.
+  - Document title → `GharSip — Hyperlocal Liquor Delivery`.
+  - Landing CTA renamed `Try the demo store` → `Liquor Store`.
+- ✅ Verified by testing agent (iteration_10.json): 9/9 backend pytest pass + 12/12 frontend flows including paywall trigger/lift, expiry persistence, warning banner, badge removal, title.
+
+### Phase 7 — Launch readiness sprint (Feb 2026)
+Seven features shipped together to legally and operationally harden the platform before vendor onboarding:
+
+- **A) Payments audit log** — `db.payments` collection. Master page `/admin/master/payments` with summary cards, vendor-list "Mark paid · 30d" buttons, and full audit trail. `POST /api/master/vendors/{id}/payments {amount_inr, days_extended, txn_note}` records the row AND auto-extends `subscription_expires_at` from later-of(current expiry, today). `GET /api/master/payments` lists rows with vendor_name joined.
+- **B) Strong vendor T&C** — `CreateVendorModal` now embeds an 8-clause legal block (merchant-of-record, indemnity, license compliance, age verification at delivery, platform-as-tech-only, payment flow, deactivation rights, governing law). Vendor types full legal name as e-signature. Backend persists `tos_accepted=true`, `tos_signature_name`, `tos_accepted_at`, `tos_accepted_ip` on the vendor doc. Submission rejected if signature blank.
+- **C) Customer 21+ age gate** — `<AgeGate>` full-screen overlay shown on first visit to `/store/<slug>`. Lists 4 disclaimer bullets (platform-as-tech-only, store-as-seller, 21+ requirement, indemnity). Accept persists in `localStorage["gharsip:age-ok:<slug>"]` for 30 days; reject redirects to google.com. Per-slug memory so each new vendor triggers a fresh gate. `<StorefrontShell>` wraps every `/store/:slug/*` route via React Router nested routes.
+- **D) Multi-vendor pricing isolation** — verified clean (already implemented via `vendor_id`-scoped products). Test added to confirm `/api/storefront/<a>` and `/api/storefront/<b>` never cross-leak.
+- **E) Vendor category selection** — Master-defined enum of 4 categories. Vendor toggles `enabled_categories` on `/admin/store`; storefront filters categories array by this list. `null`/`[]` defaults to all (back-compat). Master also picks categories at create time.
+- **F) Customer search** — Working search bar on `/store/<slug>/menu`. Filters product list (name + unit + category) live; renders match results with thumbnails or shows "No results". Empty query falls back to category grid.
+- **G) Discount/Offers system** — `db.offers` collection with `{code, title, discount_type:percent|flat, discount_value, min_order_amount, max_discount_amount, expires_at, usage_limit_total, uses, is_active, created_by}`. CRUD endpoints:
+  - Vendor: `GET/POST/PATCH/DELETE /api/vendor/offers`
+  - Master: `GET /api/master/offers?vendor_id=`, `POST /api/master/vendors/{vid}/offers`, `PATCH/DELETE /api/master/offers/{oid}`
+  - Customer validation: `POST /api/storefront/<slug>/offers/validate {code, cart_total}` returns `{discount_amount, new_total}`
+  - Order placement: `POST /api/orders` accepts `offer_code`; server re-validates, applies discount to `total`, persists `applied_offer` on order, atomically increments `uses` counter.
+  - Vendor UI: `/admin/offers` (cards + create modal). Master UI: `/admin/master/offers` with vendor dropdown.
+  - Customer UI: `<CouponInput>` on Cart with validation toast; bill summary shows discount line; checkout sends `offer_code`.
+
+- ✅ Verified by testing agent (iteration_11.json): 14/14 backend pytest pass + 100% frontend testid coverage. Two minor non-blocking notes: a hydration warning in `<option>` (cosmetic), and disabled-vendor rows remain visible on the vendor list (by design for audit trail).
+
 ## Files of Reference
 - Backend: `backend/server.py`, `backend/seed_data.py`, `backend/.env` (VAPID keys), `backend/tests/{test_multitenant,test_iter4_features,test_iter6_features}.py`
 - Frontend:
@@ -94,8 +142,13 @@ WhatsApp/Twilio integration **dropped** to avoid acting as the merchant of recor
 - Move rate limiter from in-memory to Redis when scaling beyond 1 backend pod
 
 ### P4 — SaaS-grade
-- Stripe billing for vendor subscriptions (master can mark `subscription_expires_at`)
+- ✅ Manual UPI subscription with master-controlled paywall (DONE iter-10).
 - Per-vendor analytics + peak-hour insights
 - Customer search, recently-ordered
 - Per-product image GridFS for high-image-count tenants
 - Multi-region pricing (replace hardcoded IST in `is_night_active`)
+
+### Explicitly de-scoped by user (Feb 2026)
+- ❌ Vendor self-onboarding `/apply` page — user prefers to onboard vendors manually via marketing team.
+- ❌ `/find-near-me` customer discovery page — not needed at this stage; vendors share their per-store QR directly.
+- ❌ Stripe automated subscription billing — replaced with manual UPI QR + master toggle (iter-10).

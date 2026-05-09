@@ -36,7 +36,7 @@ const PAYMENT_OPTIONS = [
 export default function Checkout() {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { items, totals, clear, bindSlug } = useCart();
+  const { items, totals, clear, bindSlug, appliedOffer } = useCart();
 
   const [vendor, setVendor] = useState(null);
   const [form, setForm] = useState({ name: "", phone: "", address: "", notes: "" });
@@ -142,8 +142,8 @@ export default function Checkout() {
     return true;
   };
 
-  // UPI deep-link
-  const upiAmount = totals.total.toFixed(2);
+  // UPI deep-link — pay the discounted total
+  const upiAmount = totals.payable.toFixed(2);
   const upiNote = encodeURIComponent(`Order from ${vendor.name}`);
   const upiPa = vendor.upi_id || "vendor@upi";
   const upiPn = encodeURIComponent(vendor.name || "Vendor");
@@ -174,6 +174,7 @@ export default function Checkout() {
           notes: form.notes,
           payment_mode: paymentMode,
           upi_last5: paymentMode === "upi" ? upiLast5 : null,
+          offer_code: appliedOffer?.code || null,
           items: orderItems,
         },
         { headers: { Authorization: "" } }
@@ -185,9 +186,10 @@ export default function Checkout() {
           short_id: data.short_id,
           tracking_token: data.tracking_token,
           status: data.status,
-          total: data.total ?? totals.total,
+          total: data.total ?? totals.payable,
           count: totals.count,
           payment_mode: paymentMode,
+          applied_offer: data.applied_offer || null,
           customer: form,
           vendor_name: vendor.name,
         })
@@ -248,10 +250,22 @@ export default function Checkout() {
               </ul>
             </div>
           ))}
-          <div className="border-t border-[var(--border-soft)] mt-3 pt-3 flex items-center justify-between">
-            <div className="text-sm font-bold">Total</div>
-            <div className="text-lg font-extrabold" data-testid="checkout-total">
-              {formatINR(totals.total)}
+          <div className="border-t border-[var(--border-soft)] mt-3 pt-3 space-y-1">
+            {totals.discount > 0 && appliedOffer && (
+              <div className="flex items-center justify-between text-xs" data-testid="checkout-discount">
+                <span className="text-[var(--text-muted)]">
+                  Coupon · <span className="font-mono font-bold">{appliedOffer.code}</span>
+                </span>
+                <span className="text-[var(--accent)] font-semibold">
+                  − {formatINR(totals.discount)}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold">Total payable</div>
+              <div className="text-lg font-extrabold" data-testid="checkout-total">
+                {formatINR(totals.payable)}
+              </div>
             </div>
           </div>
         </div>
@@ -372,7 +386,7 @@ export default function Checkout() {
           {paymentMode === "upi" && (
             <div className="mt-4 fade-up" data-testid="upi-panel">
               <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] mb-2">
-                Step 1 · Scan to pay {formatINR(totals.total)}
+                Step 1 · Scan to pay {formatINR(totals.payable)}
               </div>
               <div className="flex items-start gap-3">
                 <div
@@ -454,7 +468,7 @@ export default function Checkout() {
               data-testid="cod-panel"
             >
               Keep exact change ready. The delivery person will collect{" "}
-              <span className="font-bold text-white">{formatINR(totals.total)}</span> at your door.
+              <span className="font-bold text-white">{formatINR(totals.payable)}</span> at your door.
             </div>
           )}
         </div>
@@ -475,7 +489,7 @@ export default function Checkout() {
             <CheckCircle2 className="w-5 h-5" />
             {submitting
               ? "Placing order…"
-              : `Confirm Order · ${formatINR(totals.total)}`}
+              : `Confirm Order · ${formatINR(totals.payable)}`}
           </button>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)] text-center mt-2">
             You'll get a tracking link · vendor gets notified instantly

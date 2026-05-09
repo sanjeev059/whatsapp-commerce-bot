@@ -306,6 +306,8 @@ class VendorCreate(BaseModel):
     subscription_expires_at: Optional[str] = None
     license_info: str = ""
     accepts_tos: bool
+    tos_signature_name: Optional[str] = None  # vendor types their full legal name as e-signature
+    enabled_categories: Optional[List[str]] = None  # subset of platform category ids
 
 
 class VendorUpdate(BaseModel):
@@ -318,12 +320,51 @@ class VendorUpdate(BaseModel):
     closing_time: Optional[str] = None  # "23:00"
     subscription_active: Optional[bool] = None
     subscription_expires_at: Optional[str] = None
+    enabled_categories: Optional[List[str]] = None
     # Day/night dynamic pricing
     night_pricing_enabled: Optional[bool] = None
     night_start: Optional[str] = None      # "22:00" (IST)
     night_end: Optional[str] = None        # "06:00"
     night_multiplier: Optional[float] = None  # e.g. 1.15
     night_categories: Optional[List[str]] = None  # ["liquor", "cigarettes"]
+
+
+class PaymentRecordIn(BaseModel):
+    amount_inr: int
+    days_extended: int = 30
+    txn_note: str = ""
+
+
+class OfferCreate(BaseModel):
+    code: str  # uppercase, alphanumeric
+    title: str
+    description: str = ""
+    discount_type: str  # "percent" | "flat"
+    discount_value: float  # percent (1-100) or flat ₹
+    min_order_amount: int = 0
+    max_discount_amount: Optional[int] = None  # cap on % discounts
+    starts_at: Optional[str] = None  # ISO; null = immediate
+    expires_at: Optional[str] = None  # ISO; null = no expiry
+    usage_limit_total: Optional[int] = None  # how many times across all customers
+    is_active: bool = True
+
+
+class OfferUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[float] = None
+    min_order_amount: Optional[int] = None
+    max_discount_amount: Optional[int] = None
+    starts_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    usage_limit_total: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class OfferValidateIn(BaseModel):
+    code: str
+    cart_total: int
 
 
 class PushSubscriptionIn(BaseModel):
@@ -372,6 +413,7 @@ class OrderCreate(BaseModel):
     notes: str = ""
     payment_mode: str = "upi"  # upi | cod
     upi_last5: Optional[str] = None
+    offer_code: Optional[str] = None  # uppercase coupon code
     items: List[OrderItemIn]
 
     @field_validator("upi_last5")
@@ -383,11 +425,17 @@ class OrderCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
-
-
 class BulkProductsIn(BaseModel):
     products: List[ProductCreate]
     replace_existing: bool = False  # if true, soft-delete current products first
+
+
+class PlatformBillingUpdate(BaseModel):
+    upi_id: Optional[str] = None
+    upi_name: Optional[str] = None
+    whatsapp: Optional[str] = None
+    monthly_fee_inr: Optional[int] = None
+    note_to_vendor: Optional[str] = None
 
 
 # ==================== public storefront ====================
@@ -419,6 +467,12 @@ async def storefront(slug: str):
         {"vendor_id": v["id"], "in_stock": True}, {"_id": 0}
     ).to_list(2000)
 
+    # Vendor can disable specific categories — if they have not picked any (legacy/null),
+    # default to ALL platform categories so existing vendors keep working.
+    enabled_cat_ids = v.get("enabled_categories")
+    if enabled_cat_ids is None or len(enabled_cat_ids) == 0:
+        enabled_cat_ids = [c["id"] for c in cats]
+
     by_sub: Dict[str, List[Dict[str, Any]]] = {}
     night_active = is_night_active(v)
     for p in products:
@@ -433,6 +487,8 @@ async def storefront(slug: str):
 
     cat_payload = []
     for c in cats:
+        if c["id"] not in enabled_cat_ids:
+            continue
         cat_subs = [s for s in subs if s["category_id"] == c["id"]]
         cat_payload.append({
             **c,
@@ -464,6 +520,7 @@ def _public_vendor(v: Dict[str, Any]) -> Dict[str, Any]:
         "store_status": v.get("store_status", "open"),
         "opening_time": v.get("opening_time", ""),
         "closing_time": v.get("closing_time", ""),
+        "enabled_categories": v.get("enabled_categories") or [],
     }
 
 
@@ -594,6 +651,29 @@ async def place_order(payload: OrderCreate):
 
     total = round(sum(it["price"] * it["qty"] for it in canonical_items), 2)
 
+    # Optional offer code — re-validated server-side (don't trust client)
+    applied_offer = None
+    if payload.offer_code:
+        code = _normalize_code(payload.offer_code)
+        if code:
+            offer = await db.offers.find_one(
+                {"vendor_id": v["id"], "code": code}, {"_id": 0}
+            )
+            if not offer:
+                raise HTTPException(404, "Coupon code not found")
+            _validate_offer_for_use(offer, int(total))
+            disc = _compute_discount(offer, int(total))
+            total = max(0, round(total - disc, 2))
+            applied_offer = {
+                "code": offer["code"],
+                "title": offer["title"],
+                "discount_amount": disc,
+                "discount_type": offer["discount_type"],
+                "discount_value": offer["discount_value"],
+            }
+            # Bump usage counter
+            await db.offers.update_one({"id": offer["id"]}, {"$inc": {"uses": 1}})
+
     # Atomic per-vendor sequential counter
     seq_doc = await db.vendors.find_one_and_update(
         {"id": v["id"]}, {"$inc": {"next_order_seq": 1}}, return_document=True
@@ -603,12 +683,14 @@ async def place_order(payload: OrderCreate):
 
     new_id = str(uuid.uuid4())
     tracking_token = uuid.uuid4().hex[:16]
+    delivery_token = uuid.uuid4().hex[:16]
     initial_status = "payment_verification_pending" if payload.payment_mode == "upi" else "accepted"
 
     order = {
         "id": new_id,
         "short_id": short_id,
         "tracking_token": tracking_token,
+        "delivery_token": delivery_token,
         "vendor_id": v["id"],
         "customer_name": payload.customer_name.strip(),
         "customer_phone": payload.customer_phone.strip(),
@@ -620,6 +702,7 @@ async def place_order(payload: OrderCreate):
         "upi_last5": payload.upi_last5,
         "items": canonical_items,
         "total": total,
+        "applied_offer": applied_offer,
         "night_pricing_applied": night_active and total != round(sum(i.price * i.qty for i in payload.items), 2),
         "status": initial_status,
         "status_history": [{"status": initial_status, "at": now_iso()}],
@@ -661,6 +744,95 @@ async def track_order(token: str):
         "vendor": _public_vendor(v) if v else None,
         "created_at": o["created_at"],
     }
+
+
+# ==================== delivery handoff (token-gated, no auth) ====================
+@api.get("/delivery/{token}")
+async def delivery_get(token: str):
+    """Public: delivery boy view of one order. Available only while status==out_for_delivery."""
+    o = await db.orders.find_one({"delivery_token": token}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Delivery link invalid")
+    v = await db.vendors.find_one({"id": o["vendor_id"]}, {"_id": 0})
+    return {
+        "short_id": o["short_id"],
+        "status": o["status"],
+        "is_actionable": o["status"] == "out_for_delivery",
+        "items": o["items"],
+        "total": o["total"],
+        "payment_mode": o["payment_mode"],
+        "customer_name": o["customer_name"],
+        "customer_phone": o["customer_phone"],
+        "delivery_address": o["delivery_address"],
+        "customer_lat": o.get("customer_lat"),
+        "customer_lng": o.get("customer_lng"),
+        "notes": o.get("notes", ""),
+        "vendor_name": v["name"] if v else "",
+        "delivered_at": o.get("delivered_at"),
+        "delivery_proof_image_id": o.get("delivery_proof_image_id"),
+    }
+
+
+@api.post(
+    "/delivery/{token}/delivered",
+    dependencies=[Depends(rate_limit(window_seconds=60, max_calls=10))],
+)
+async def delivery_mark_delivered(token: str, file: UploadFile = File(...)):
+    """Public: delivery boy marks the order delivered with a proof photo."""
+    o = await db.orders.find_one({"delivery_token": token}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Delivery link invalid")
+    if o["status"] != "out_for_delivery":
+        # Already delivered, cancelled, or never dispatched — link is "one-time" by design.
+        raise HTTPException(409, f"Order is already '{o['status']}', not deliverable")
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Photo must be JPEG, PNG, WEBP, or GIF")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"Photo too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)")
+    if not data:
+        raise HTTPException(400, "Empty photo")
+
+    image_id = uuid.uuid4().hex
+    await db.images.insert_one({
+        "id": image_id,
+        "vendor_id": o["vendor_id"],
+        "content_type": file.content_type,
+        "data": data,
+        "size": len(data),
+        "filename": file.filename,
+        "purpose": "delivery_proof",
+        "order_id": o["id"],
+        "created_at": now_iso(),
+    })
+
+    now_ts = now_iso()
+    new_history = list(o.get("status_history", [])) + [
+        {"status": "delivered", "at": now_ts, "by": "delivery_link"}
+    ]
+    await db.orders.update_one(
+        {"id": o["id"]},
+        {"$set": {
+            "status": "delivered",
+            "status_history": new_history,
+            "delivered_at": now_ts,
+            "delivery_proof_image_id": image_id,
+        }},
+    )
+
+    # Notify the vendor (push + log)
+    try:
+        await push_to_vendor(o["vendor_id"], {
+            "type": "delivered",
+            "short_id": o["short_id"],
+            "total": o["total"],
+            "customer": o["customer_name"],
+        })
+    except Exception as e:
+        logger.warning("delivered push failed: %s", e)
+
+    return {"ok": True, "status": "delivered", "delivered_at": now_ts, "proof_image_id": image_id}
 
 
 # ==================== auth ====================
@@ -746,15 +918,18 @@ async def list_vendors():
 
 
 @master.post("/vendors")
-async def create_vendor(payload: VendorCreate):
+async def create_vendor(payload: VendorCreate, request: Request):
     if not payload.accepts_tos:
         raise HTTPException(400, "Vendor must accept Terms of Service")
+    if not (payload.tos_signature_name and payload.tos_signature_name.strip()):
+        raise HTTPException(400, "Vendor's typed full legal name is required as e-signature for the Terms of Service")
 
     slug = (payload.slug or slugify(payload.name)).lower()
     if await db.vendors.find_one({"slug": slug}):
         raise HTTPException(400, f"Slug '{slug}' already taken")
 
     vendor_id = str(uuid.uuid4())
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0].strip()
     vendor = {
         "id": vendor_id,
         "slug": slug,
@@ -770,6 +945,11 @@ async def create_vendor(payload: VendorCreate):
         "subscription_active": True,
         "subscription_expires_at": payload.subscription_expires_at,
         "license_info": payload.license_info.strip(),
+        "enabled_categories": payload.enabled_categories or [],
+        "tos_accepted": True,
+        "tos_signature_name": payload.tos_signature_name.strip(),
+        "tos_accepted_at": now_iso(),
+        "tos_accepted_ip": client_ip,
         "next_order_seq": 0,
         "created_at": now_iso(),
     }
@@ -827,6 +1007,246 @@ async def all_orders(limit: int = 200):
     return orders
 
 
+# ==================== Platform billing (master configures, vendor sees) ====================
+DEFAULT_PLATFORM_BILLING = {
+    "id": "platform_billing",
+    "upi_id": "",
+    "upi_name": "GharSip",
+    "whatsapp": "",
+    "monthly_fee_inr": 5000,
+    "note_to_vendor": "Pay your monthly subscription to keep your store live. After paying, send the screenshot to the WhatsApp number above and the platform team will activate your store within 30 minutes.",
+}
+
+
+async def _get_platform_billing() -> Dict[str, Any]:
+    doc = await db.settings.find_one({"id": "platform_billing"}, {"_id": 0})
+    if not doc:
+        await db.settings.insert_one(dict(DEFAULT_PLATFORM_BILLING))
+        return dict(DEFAULT_PLATFORM_BILLING)
+    return doc
+
+
+@master.get("/billing")
+async def master_get_billing(user=Depends(require_master)):
+    return await _get_platform_billing()
+
+
+@master.patch("/billing")
+async def master_update_billing(payload: PlatformBillingUpdate, user=Depends(require_master)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    if "monthly_fee_inr" in update:
+        update["monthly_fee_inr"] = max(0, int(update["monthly_fee_inr"]))
+    await db.settings.update_one(
+        {"id": "platform_billing"},
+        {"$set": update, "$setOnInsert": {"id": "platform_billing"}},
+        upsert=True,
+    )
+    return await _get_platform_billing()
+
+
+@api.get("/billing/qr.png")
+async def platform_billing_qr(size: int = 512):
+    """Public PNG UPI-intent QR for platform subscription payment. Embedded in vendor paywall + master billing page."""
+    cfg = await _get_platform_billing()
+    upi_id = (cfg.get("upi_id") or "").strip()
+    if not upi_id:
+        raise HTTPException(404, "Platform UPI not configured")
+    upi_name = (cfg.get("upi_name") or "GharSip").strip()
+    fee = int(cfg.get("monthly_fee_inr") or 0)
+    size = max(180, min(int(size), 1024))
+    # UPI deep-link spec: upi://pay?pa=<upi>&pn=<name>&am=<amount>&cu=INR&tn=<note>
+    from urllib.parse import quote
+    note = quote("GharSip subscription")
+    upi_url = f"upi://pay?pa={quote(upi_id)}&pn={quote(upi_name)}&am={fee}&cu=INR&tn={note}"
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(upi_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").resize((size, size))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+# ==================== Payments audit log (master) ====================
+@master.post("/vendors/{vid}/payments")
+async def master_record_payment(vid: str, payload: PaymentRecordIn, user=Depends(require_master)):
+    """Marks a vendor as paid for N days; auto-extends subscription_expires_at; logs audit row."""
+    v = await db.vendors.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    days = max(1, min(int(payload.days_extended), 365))
+
+    # Compute new expiry: from later of (current expiry, today)
+    now = datetime.now(timezone.utc)
+    cur_iso = v.get("subscription_expires_at")
+    base_dt = now
+    if cur_iso:
+        try:
+            cur_dt = datetime.fromisoformat(str(cur_iso).replace("Z", "+00:00"))
+            if cur_dt.tzinfo is None:
+                cur_dt = cur_dt.replace(tzinfo=timezone.utc)
+            if cur_dt > now:
+                base_dt = cur_dt
+        except Exception:
+            pass
+    new_expiry = base_dt + timedelta(days=days)
+    new_expiry_iso = new_expiry.isoformat()
+
+    # Persist update + audit row atomically (best-effort; not a real transaction)
+    await db.vendors.update_one(
+        {"id": vid},
+        {"$set": {"subscription_active": True, "subscription_expires_at": new_expiry_iso}},
+    )
+    log_id = str(uuid.uuid4())
+    log = {
+        "id": log_id,
+        "vendor_id": vid,
+        "vendor_name": v["name"],
+        "amount_inr": max(0, int(payload.amount_inr)),
+        "days_extended": days,
+        "txn_note": (payload.txn_note or "").strip(),
+        "recorded_by": user.get("email", "master"),
+        "recorded_at": now_iso(),
+        "new_expiry_at": new_expiry_iso,
+    }
+    await db.payments.insert_one(dict(log))
+    return {"payment": log, "new_expiry_at": new_expiry_iso}
+
+
+@master.get("/payments")
+async def master_list_payments(vendor_id: Optional[str] = None, limit: int = 200, user=Depends(require_master)):
+    q = {"vendor_id": vendor_id} if vendor_id else {}
+    rows = await db.payments.find(q, {"_id": 0}).sort("recorded_at", -1).to_list(limit)
+    return rows
+
+
+# ==================== Offers / Discounts ====================
+def _normalize_code(c: str) -> str:
+    return "".join(ch for ch in (c or "").upper() if ch.isalnum())
+
+
+def _validate_offer_payload(p: Dict[str, Any]) -> None:
+    dt = p.get("discount_type")
+    if dt not in ("percent", "flat"):
+        raise HTTPException(400, "discount_type must be 'percent' or 'flat'")
+    dv = float(p.get("discount_value") or 0)
+    if dt == "percent" and not (0 < dv <= 100):
+        raise HTTPException(400, "Percent discount must be between 0 and 100")
+    if dt == "flat" and dv <= 0:
+        raise HTTPException(400, "Flat discount must be > 0")
+
+
+async def _create_offer(vendor_id: str, payload: OfferCreate, created_by: str) -> Dict[str, Any]:
+    code = _normalize_code(payload.code)
+    if not code:
+        raise HTTPException(400, "Code must be alphanumeric")
+    existing = await db.offers.find_one({"vendor_id": vendor_id, "code": code}, {"_id": 0})
+    if existing:
+        raise HTTPException(400, f"Code '{code}' already exists for this vendor")
+    body = payload.model_dump()
+    body["code"] = code
+    _validate_offer_payload(body)
+    offer = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": vendor_id,
+        "code": code,
+        "title": payload.title.strip(),
+        "description": (payload.description or "").strip(),
+        "discount_type": payload.discount_type,
+        "discount_value": float(payload.discount_value),
+        "min_order_amount": int(payload.min_order_amount or 0),
+        "max_discount_amount": int(payload.max_discount_amount) if payload.max_discount_amount is not None else None,
+        "starts_at": payload.starts_at,
+        "expires_at": payload.expires_at,
+        "usage_limit_total": int(payload.usage_limit_total) if payload.usage_limit_total else None,
+        "uses": 0,
+        "is_active": bool(payload.is_active),
+        "created_by": created_by,
+        "created_at": now_iso(),
+    }
+    await db.offers.insert_one(dict(offer))
+    return offer
+
+
+def _compute_discount(offer: Dict[str, Any], cart_total: int) -> int:
+    if offer["discount_type"] == "percent":
+        d = int(round(cart_total * offer["discount_value"] / 100))
+    else:
+        d = int(offer["discount_value"])
+    cap = offer.get("max_discount_amount")
+    if cap is not None:
+        d = min(d, int(cap))
+    return max(0, min(d, cart_total))
+
+
+def _validate_offer_for_use(offer: Dict[str, Any], cart_total: int) -> None:
+    if not offer.get("is_active", True):
+        raise HTTPException(400, "Offer is no longer active")
+    now = datetime.now(timezone.utc)
+    starts_at = offer.get("starts_at")
+    expires_at = offer.get("expires_at")
+    if starts_at:
+        try:
+            sdt = datetime.fromisoformat(str(starts_at).replace("Z", "+00:00"))
+            if sdt.tzinfo is None:
+                sdt = sdt.replace(tzinfo=timezone.utc)
+            if sdt > now:
+                raise HTTPException(400, "Offer is not active yet")
+        except ValueError:
+            pass
+    if expires_at:
+        try:
+            edt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if edt.tzinfo is None:
+                edt = edt.replace(tzinfo=timezone.utc)
+            if edt < now:
+                raise HTTPException(400, "Offer has expired")
+        except ValueError:
+            pass
+    if offer.get("min_order_amount") and cart_total < int(offer["min_order_amount"]):
+        raise HTTPException(400, f"Minimum order ₹{offer['min_order_amount']} required for this code")
+    if offer.get("usage_limit_total") and offer.get("uses", 0) >= int(offer["usage_limit_total"]):
+        raise HTTPException(400, "Offer usage limit reached")
+
+
+@api.post("/storefront/{slug}/offers/validate")
+async def storefront_validate_offer(slug: str, payload: OfferValidateIn):
+    """Customer types coupon code on Cart/Checkout — server validates and returns the discount preview."""
+    v = await db.vendors.find_one({"slug": slug, "subscription_active": True}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Store not found")
+    code = _normalize_code(payload.code)
+    if not code:
+        raise HTTPException(400, "Enter a coupon code")
+    offer = await db.offers.find_one(
+        {"vendor_id": v["id"], "code": code}, {"_id": 0}
+    )
+    if not offer:
+        raise HTTPException(404, "Coupon code not found")
+    cart_total = max(0, int(payload.cart_total))
+    _validate_offer_for_use(offer, cart_total)
+    discount = _compute_discount(offer, cart_total)
+    return {
+        "code": offer["code"],
+        "title": offer["title"],
+        "discount_amount": discount,
+        "new_total": cart_total - discount,
+        "discount_type": offer["discount_type"],
+        "discount_value": offer["discount_value"],
+    }
+
+
 # ==================== Vendor Admin ====================
 vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 
@@ -834,6 +1254,42 @@ vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 @vendor_r.get("/me")
 async def vendor_me(user=Depends(require_vendor)):
     return user["vendor"]
+
+
+@vendor_r.get("/billing")
+async def vendor_billing(user=Depends(require_vendor)):
+    """Vendor sees the platform's UPI/QR + their own subscription status (active flag, expiry date, days remaining)."""
+    cfg = await _get_platform_billing()
+    v = user["vendor"]
+    expires_at = v.get("subscription_expires_at")
+    days_remaining = None
+    is_expired = False
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            delta = exp_dt - datetime.now(timezone.utc)
+            days_remaining = int(delta.total_seconds() // 86400)
+            is_expired = delta.total_seconds() < 0
+        except Exception:
+            pass
+    return {
+        "platform": {
+            "upi_id": cfg.get("upi_id") or "",
+            "upi_name": cfg.get("upi_name") or "GharSip",
+            "whatsapp": cfg.get("whatsapp") or "",
+            "monthly_fee_inr": int(cfg.get("monthly_fee_inr") or 0),
+            "note_to_vendor": cfg.get("note_to_vendor") or "",
+            "qr_available": bool((cfg.get("upi_id") or "").strip()),
+        },
+        "subscription": {
+            "active": bool(v.get("subscription_active", True)),
+            "expires_at": expires_at,
+            "days_remaining": days_remaining,
+            "is_expired": is_expired,
+        },
+    }
 
 
 @vendor_r.post("/uploads/image")
@@ -1068,6 +1524,96 @@ async def vendor_delete_product(pid: str, user=Depends(require_vendor)):
     return {"ok": True}
 
 
+# ==================== Vendor offers ====================
+@vendor_r.get("/offers")
+async def vendor_list_offers(user=Depends(require_vendor)):
+    return await db.offers.find(
+        {"vendor_id": user["vendor_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+
+
+@vendor_r.post("/offers")
+async def vendor_create_offer(payload: OfferCreate, user=Depends(require_vendor)):
+    return await _create_offer(user["vendor_id"], payload, created_by="vendor")
+
+
+@vendor_r.patch("/offers/{oid}")
+async def vendor_update_offer(oid: str, payload: OfferUpdate, user=Depends(require_vendor)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    if "discount_type" in update or "discount_value" in update:
+        # We need a merged view to validate
+        cur = await db.offers.find_one({"id": oid, "vendor_id": user["vendor_id"]}, {"_id": 0})
+        if not cur:
+            raise HTTPException(404, "Offer not found")
+        merged = {**cur, **update}
+        _validate_offer_payload(merged)
+    res = await db.offers.find_one_and_update(
+        {"id": oid, "vendor_id": user["vendor_id"]},
+        {"$set": update},
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not res:
+        raise HTTPException(404, "Offer not found")
+    return res
+
+
+@vendor_r.delete("/offers/{oid}")
+async def vendor_delete_offer(oid: str, user=Depends(require_vendor)):
+    r = await db.offers.delete_one({"id": oid, "vendor_id": user["vendor_id"]})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Offer not found")
+    return {"ok": True}
+
+
+# ==================== Master offers (manage any vendor) ====================
+@master.get("/offers")
+async def master_list_offers(vendor_id: Optional[str] = None, user=Depends(require_master)):
+    q = {"vendor_id": vendor_id} if vendor_id else {}
+    rows = await db.offers.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    if not vendor_id:
+        # join vendor names for the all-offers view
+        vmap = {v["id"]: v["name"] for v in await db.vendors.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+        for r in rows:
+            r["vendor_name"] = vmap.get(r["vendor_id"], "—")
+    return rows
+
+
+@master.post("/vendors/{vid}/offers")
+async def master_create_offer(vid: str, payload: OfferCreate, user=Depends(require_master)):
+    if not await db.vendors.find_one({"id": vid}, {"_id": 1}):
+        raise HTTPException(404, "Vendor not found")
+    return await _create_offer(vid, payload, created_by=f"master:{user.get('email')}")
+
+
+@master.patch("/offers/{oid}")
+async def master_update_offer(oid: str, payload: OfferUpdate, user=Depends(require_master)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    if "discount_type" in update or "discount_value" in update:
+        cur = await db.offers.find_one({"id": oid}, {"_id": 0})
+        if not cur:
+            raise HTTPException(404, "Offer not found")
+        _validate_offer_payload({**cur, **update})
+    res = await db.offers.find_one_and_update(
+        {"id": oid}, {"$set": update}, return_document=True, projection={"_id": 0}
+    )
+    if not res:
+        raise HTTPException(404, "Offer not found")
+    return res
+
+
+@master.delete("/offers/{oid}")
+async def master_delete_offer(oid: str, user=Depends(require_master)):
+    r = await db.offers.delete_one({"id": oid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Offer not found")
+    return {"ok": True}
+
+
 @vendor_r.get("/categories")
 async def vendor_categories(user=Depends(require_vendor)):
     return await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
@@ -1201,6 +1747,7 @@ async def on_startup():
     await db.products.create_index([("vendor_id", 1), ("subgroup_id", 1)])
     await db.orders.create_index("id", unique=True)
     await db.orders.create_index("tracking_token", unique=True)
+    await db.orders.create_index("delivery_token")
     await db.orders.create_index([("vendor_id", 1), ("created_at", -1)])
 
     # Seed master admin
@@ -1244,6 +1791,25 @@ async def on_startup():
             "Migration %s: matched=%d modified=%d",
             MIGRATION_ID, result.matched_count, result.modified_count,
         )
+
+    # Backfill delivery_token on any pre-existing orders that don't have one,
+    # so legacy orders can also be handed off via the public delivery link.
+    DELIVERY_MIGRATION = "20250509_delivery_token_backfill"
+    if not await db.migrations.find_one({"id": DELIVERY_MIGRATION}):
+        legacy = db.orders.find({"delivery_token": {"$exists": False}}, {"id": 1, "_id": 0})
+        count = 0
+        async for o in legacy:
+            await db.orders.update_one(
+                {"id": o["id"]},
+                {"$set": {"delivery_token": uuid.uuid4().hex[:16]}},
+            )
+            count += 1
+        await db.migrations.insert_one({
+            "id": DELIVERY_MIGRATION,
+            "modified": count,
+            "ran_at": now_iso(),
+        })
+        logger.info("Migration %s: modified=%d orders", DELIVERY_MIGRATION, count)
 
     # Seed shared categories/subgroups (always — these are platform-wide constants)
     if await db.categories.count_documents({}) == 0:

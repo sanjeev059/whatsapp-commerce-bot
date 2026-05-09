@@ -34,7 +34,7 @@ export default function Landing() {
 
         <div className="mt-8 flex flex-col gap-3">
           <a href="/store/sharma-wines" className="btn-primary" data-testid="demo-store-cta">
-            <Store className="w-4 h-4" /> Try the demo store →
+            <Store className="w-4 h-4" /> Liquor Store →
           </a>
           <button onClick={() => navigate("/admin/login")} className="btn-ghost justify-center" data-testid="login-cta">
             Vendor / Admin login

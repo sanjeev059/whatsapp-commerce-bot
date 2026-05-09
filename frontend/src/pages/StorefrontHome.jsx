@@ -48,7 +48,7 @@ export default function StorefrontHome() {
   return (
     <div className="min-h-[100dvh] relative overflow-hidden" data-testid="storefront-home">
       <PerVendorPWA vendor={v} />
-      <InstallAppHint vendorName={v.name} />
+      <InstallAppHint vendorName={v.name} slug={slug} />
       <div aria-hidden className="absolute -top-20 left-0 right-0 h-72 opacity-40 blur-3xl"
         style={{ background: "radial-gradient(circle at 50% 0%, var(--accent), transparent 60%)" }} />
 

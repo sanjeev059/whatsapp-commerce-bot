@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Save,
   Trash2,
+  Calendar,
 } from "lucide-react";
 
 export default function MasterVendors() {
@@ -57,6 +58,51 @@ export default function MasterVendors() {
     }
   };
 
+  const setExpiry = async (v) => {
+    const current = v.subscription_expires_at
+      ? new Date(v.subscription_expires_at).toISOString().slice(0, 10)
+      : "";
+    // eslint-disable-next-line no-alert
+    const input = window.prompt(
+      `Set subscription expiry for "${v.name}"\n\nFormat: YYYY-MM-DD (leave blank to clear)`,
+      current
+    );
+    if (input === null) return; // cancelled
+    const trimmed = input.trim();
+    let payload;
+    if (trimmed === "") {
+      payload = { subscription_expires_at: null };
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      toast.error("Use YYYY-MM-DD format");
+      return;
+    } else {
+      // Set to end-of-day in IST so the day itself counts
+      payload = { subscription_expires_at: `${trimmed}T23:59:59+05:30` };
+    }
+    try {
+      await api.patch(`/master/vendors/${v.id}`, payload);
+      toast.success(trimmed ? `Expiry → ${trimmed}` : "Expiry cleared");
+      load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    }
+  };
+
+  const formatExpiry = (iso) => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const days = Math.ceil((d - now) / 86400000);
+      const label = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+      if (days < 0) return { label, sub: `${Math.abs(days)}d ago`, expired: true };
+      if (days <= 7) return { label, sub: `${days}d left`, soon: true };
+      return { label, sub: `${days}d left` };
+    } catch {
+      return "—";
+    }
+  };
+
   return (
     <div className="px-4 md:px-8 pt-6 md:pt-8 pb-12" data-testid="master-vendors-page">
       <div className="flex items-end justify-between mb-5 gap-4 flex-wrap">
@@ -77,11 +123,12 @@ export default function MasterVendors() {
 
       {/* Vendor list */}
       <div className="surface overflow-hidden">
-        <div className="hidden md:grid md:grid-cols-[1fr_180px_140px_120px_120px] text-[11px] uppercase tracking-wider text-[var(--text-muted)] px-4 py-3 border-b border-[var(--border-soft)] font-semibold">
+        <div className="hidden md:grid md:grid-cols-[1fr_180px_140px_120px_140px_140px] text-[11px] uppercase tracking-wider text-[var(--text-muted)] px-4 py-3 border-b border-[var(--border-soft)] font-semibold">
           <div>Vendor</div>
           <div>Slug / URL</div>
           <div>Owner</div>
           <div className="text-center">Status</div>
+          <div className="text-center">Sub. expiry</div>
           <div className="text-right">Actions</div>
         </div>
         {vendors.length === 0 ? (
@@ -89,10 +136,12 @@ export default function MasterVendors() {
             {loading ? "Loading…" : "No vendors yet. Click 'Add vendor' to onboard the first one."}
           </div>
         ) : (
-          vendors.map((v) => (
+          vendors.map((v) => {
+            const exp = formatExpiry(v.subscription_expires_at);
+            return (
             <div
               key={v.id}
-              className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_180px_140px_120px_120px] items-center gap-3 px-4 py-3 border-b border-[var(--border-soft)] last:border-0"
+              className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_180px_140px_120px_140px_140px] items-center gap-3 px-4 py-3 border-b border-[var(--border-soft)] last:border-0"
               data-testid={`vendor-row-${v.slug}`}
             >
               <div className="min-w-0">
@@ -119,7 +168,32 @@ export default function MasterVendors() {
                   {v.subscription_active ? "Active" : "Disabled"}
                 </span>
               </div>
+              <div className="hidden md:flex flex-col items-center text-center">
+                {typeof exp === "object" ? (
+                  <>
+                    <span
+                      className="text-xs font-semibold"
+                      style={{
+                        color: exp.expired ? "#f43f5e" : exp.soon ? "#ffb547" : "var(--text)",
+                      }}
+                    >
+                      {exp.label}
+                    </span>
+                    <span className="text-[10px] text-[var(--text-faint)]">{exp.sub}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-[var(--text-faint)]">—</span>
+                )}
+              </div>
               <div className="flex justify-end gap-1">
+                <button
+                  onClick={() => setExpiry(v)}
+                  className="p-2 rounded-md hover:bg-[var(--surface-2)] text-[var(--text-muted)]"
+                  data-testid={`vendor-expiry-${v.slug}`}
+                  title="Set subscription expiry"
+                >
+                  <Calendar className="w-4 h-4" />
+                </button>
                 <a
                   href={`/store/${v.slug}`}
                   target="_blank"
@@ -151,7 +225,8 @@ export default function MasterVendors() {
                 )}
               </div>
             </div>
-          ))
+          );
+          })
         )}
       </div>
 
@@ -180,6 +255,8 @@ function CreateVendorModal({ onClose, onCreated }) {
     address: "",
     upi_id: "",
     license_info: "",
+    enabled_categories: ["liquor", "cigarettes", "snacks", "food"],
+    tos_signature_name: "",
     accepts_tos: false,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -188,6 +265,14 @@ function CreateVendorModal({ onClose, onCreated }) {
     e.preventDefault();
     if (!form.accepts_tos) {
       toast.error("Vendor must accept the platform Terms of Service.");
+      return;
+    }
+    if (!form.tos_signature_name.trim()) {
+      toast.error("Vendor's typed legal name is required as e-signature.");
+      return;
+    }
+    if (form.enabled_categories.length === 0) {
+      toast.error("Pick at least one category the vendor will sell.");
       return;
     }
     setSubmitting(true);
@@ -200,6 +285,15 @@ function CreateVendorModal({ onClose, onCreated }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const toggleCat = (id) => {
+    setForm((f) => ({
+      ...f,
+      enabled_categories: f.enabled_categories.includes(id)
+        ? f.enabled_categories.filter((c) => c !== id)
+        : [...f.enabled_categories, id],
+    }));
   };
 
   return (
@@ -300,17 +394,119 @@ function CreateVendorModal({ onClose, onCreated }) {
               data-testid="new-vendor-license"
             />
           </Field>
-          <label className="flex items-start gap-2 text-xs text-[var(--text-muted)] pt-2">
+
+          <Field label="Categories this vendor sells *">
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {[
+                { id: "liquor", label: "🍻 Liquor" },
+                { id: "cigarettes", label: "🚬 Cigarettes" },
+                { id: "snacks", label: "🍿 Snacks" },
+                { id: "food", label: "🍔 Food" },
+              ].map((c) => (
+                <label
+                  key={c.id}
+                  className={`px-3 py-2 rounded-lg border text-sm cursor-pointer flex items-center gap-2 ${
+                    form.enabled_categories.includes(c.id)
+                      ? "border-[var(--accent)] bg-[rgba(34,210,122,0.08)]"
+                      : "border-[var(--border)] bg-[var(--surface-2)]"
+                  }`}
+                  data-testid={`new-vendor-cat-${c.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-[var(--accent)]"
+                    checked={form.enabled_categories.includes(c.id)}
+                    onChange={() => toggleCat(c.id)}
+                  />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          </Field>
+
+          {/* Terms of Service block */}
+          <div
+            className="rounded-xl p-3 mt-2 text-[11px] leading-relaxed text-[var(--text-muted)]"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border-soft)" }}
+            data-testid="new-vendor-tos-block"
+          >
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)] font-bold mb-2">
+              Terms of Service · Vendor agreement
+            </div>
+            <ol className="list-decimal pl-4 space-y-1.5 max-h-44 overflow-y-auto thin-scroll pr-2">
+              <li>
+                The Vendor is the sole <strong>merchant of record</strong> for every order placed
+                through the storefront. GharSip / the Platform never takes title to, owns, sells,
+                stores, or delivers any goods — including liquor, tobacco, food, or any restricted
+                item. The Platform is a pure technology and listing service.
+              </li>
+              <li>
+                The Vendor warrants they hold all required licenses (excise / FL-shop / FSSAI /
+                trade / GST / municipal) for every category they list, and will keep them valid
+                throughout the engagement. The Vendor will provide license copies on demand and
+                immediately notify the Platform of any suspension, revocation, or expiry.
+              </li>
+              <li>
+                The Vendor is solely responsible for: (a) verifying the customer's age (21+ for
+                liquor / tobacco) at the time of physical handover, (b) refusing service to
+                intoxicated or under-age individuals, (c) accurate product descriptions, MRP
+                pricing, and tax compliance, (d) handling, packaging, hygiene, and food safety,
+                (e) all delivery operations and personnel, and (f) complaints, refunds, and
+                disputes with customers.
+              </li>
+              <li>
+                The Vendor agrees to <strong>indemnify, defend, and hold harmless</strong> the
+                Platform, its operators, employees, and affiliates from any and all claims,
+                damages, fines, regulatory action, lawsuits, taxes, penalties, or losses arising
+                from or relating to the Vendor's products, deliveries, license status, employees,
+                customers, or any breach of law. This indemnity survives termination.
+              </li>
+              <li>
+                The Platform may immediately deactivate the storefront on (a) non-payment of the
+                monthly fee, (b) any regulatory complaint, (c) suspected fraud, (d) breach of
+                these terms, or (e) at the Platform's sole discretion, without liability.
+              </li>
+              <li>
+                Customer payments via UPI flow directly from customer to Vendor's UPI ID — the
+                Platform never holds, processes, or settles any customer money. The Platform's
+                only revenue is the monthly subscription fee paid by the Vendor.
+              </li>
+              <li>
+                The Vendor consents to the platform displaying the store name, products, prices,
+                address, hours, and aggregated order analytics for operational and marketing
+                purposes.
+              </li>
+              <li>
+                Disputes shall be governed by the laws of India and resolved by the courts of the
+                Vendor's registered city. Either party may terminate with 7 days' written notice;
+                outstanding subscription fees are non-refundable.
+              </li>
+            </ol>
+          </div>
+
+          <Field label="Vendor's typed full legal name (e-signature) *">
+            <input
+              className="input"
+              required
+              placeholder="As it appears on the license / Aadhaar"
+              value={form.tos_signature_name}
+              onChange={(e) => setForm({ ...form, tos_signature_name: e.target.value })}
+              data-testid="new-vendor-signature"
+            />
+          </Field>
+
+          <label className="flex items-start gap-2 text-xs text-[var(--text-muted)] pt-1">
             <input
               type="checkbox"
-              className="mt-0.5"
+              className="mt-0.5 accent-[var(--accent)]"
               checked={form.accepts_tos}
               onChange={(e) => setForm({ ...form, accepts_tos: e.target.checked })}
               data-testid="new-vendor-tos"
             />
             <span>
-              Vendor accepts platform Terms of Service. Vendor is the legal merchant of record;
-              Local Commerce is the platform only.
+              By checking this box and signing above, the Vendor confirms they have read,
+              understood, and accept all 8 clauses of the Terms of Service. Acceptance is recorded
+              with timestamp and IP for audit.
             </span>
           </label>
         </div>

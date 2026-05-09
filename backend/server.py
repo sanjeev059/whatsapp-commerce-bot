@@ -321,6 +321,10 @@ class VendorUpdate(BaseModel):
     subscription_active: Optional[bool] = None
     subscription_expires_at: Optional[str] = None
     enabled_categories: Optional[List[str]] = None
+    # Geo / delivery radius
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    delivery_radius_km: Optional[float] = None  # default 5km on the storefront if unset
     # Day/night dynamic pricing
     night_pricing_enabled: Optional[bool] = None
     night_start: Optional[str] = None      # "22:00" (IST)
@@ -521,7 +525,22 @@ def _public_vendor(v: Dict[str, Any]) -> Dict[str, Any]:
         "opening_time": v.get("opening_time", ""),
         "closing_time": v.get("closing_time", ""),
         "enabled_categories": v.get("enabled_categories") or [],
+        "lat": v.get("lat"),
+        "lng": v.get("lng"),
+        "delivery_radius_km": float(v.get("delivery_radius_km") or 5.0),
     }
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two points in kilometres."""
+    import math
+    r = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 @api.get("/push/vapid-public-key")
@@ -636,6 +655,24 @@ async def place_order(payload: OrderCreate):
         raise HTTPException(403, "Store currently closed")
     if not payload.items:
         raise HTTPException(400, "Cart is empty")
+
+    # Delivery radius enforcement (only if vendor has pinned location)
+    if v.get("lat") is not None and v.get("lng") is not None:
+        if payload.customer_lat is None or payload.customer_lng is None:
+            raise HTTPException(
+                400,
+                "We need your location to confirm we deliver to your address. Please enable location and try again.",
+            )
+        radius = float(v.get("delivery_radius_km") or 5.0)
+        dist = _haversine_km(
+            float(v["lat"]), float(v["lng"]),
+            float(payload.customer_lat), float(payload.customer_lng),
+        )
+        if dist > radius:
+            raise HTTPException(
+                400,
+                f"You are {dist:.1f} km away — outside this store's {radius:.0f} km delivery range. We can't deliver here.",
+            )
 
     # UPI verification gate
     if payload.payment_mode == "upi":

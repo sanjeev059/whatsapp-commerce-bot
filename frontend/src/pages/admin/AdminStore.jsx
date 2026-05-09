@@ -20,6 +20,8 @@ import {
   EyeOff,
   Moon,
   Sun,
+  Navigation,
+  Loader2,
 } from "lucide-react";
 
 export default function AdminStore() {
@@ -42,6 +44,9 @@ export default function AdminStore() {
           enabled_categories: data.enabled_categories && data.enabled_categories.length > 0
             ? data.enabled_categories
             : ["liquor", "cigarettes", "snacks", "food"],
+          lat: data.lat ?? "",
+          lng: data.lng ?? "",
+          delivery_radius_km: data.delivery_radius_km ?? 5,
           night_pricing_enabled: !!data.night_pricing_enabled,
           night_start: data.night_start || "22:00",
           night_end: data.night_end || "06:00",
@@ -230,6 +235,8 @@ export default function AdminStore() {
             />
           </Field>
         </div>
+
+        <DeliveryRadiusCard form={form} setForm={setForm} />
 
         <Field label="Categories you sell">
           <div className="grid grid-cols-2 gap-2 pt-1" data-testid="store-categories">
@@ -572,3 +579,125 @@ function Field({ label, icon, multi, children }) {
     </label>
   );
 }
+
+function DeliveryRadiusCard({ form, setForm }) {
+  const [pinning, setPinning] = useState(false);
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Your browser does not support GPS");
+      return;
+    }
+    setPinning(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((f) => ({
+          ...f,
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        }));
+        toast.success(
+          `Pinned · ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`
+        );
+        setPinning(false);
+      },
+      (err) => {
+        setPinning(false);
+        toast.error(
+          err.code === err.PERMISSION_DENIED
+            ? "Allow location to pin your shop"
+            : "Could not get location — try again"
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const clear = () =>
+    setForm((f) => ({ ...f, lat: "", lng: "" }));
+
+  const hasPin = form.lat !== "" && form.lng !== "" && form.lat != null && form.lng != null;
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: "var(--surface-2)", border: "1px solid var(--border-soft)" }}
+      data-testid="store-radius-card"
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Navigation className="w-4 h-4 text-[var(--accent)]" />
+        <div className="text-sm font-bold">Delivery range</div>
+      </div>
+      <p className="text-[11px] text-[var(--text-muted)] mb-3 leading-relaxed">
+        Pin your shop on the map. Customers more than the set distance away will be told you don't deliver to them — both before they browse and at checkout.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="surface-2 !rounded-lg px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">Latitude</div>
+          <div className="text-sm font-mono mt-0.5" data-testid="store-lat">
+            {hasPin ? Number(form.lat).toFixed(5) : <span className="text-[var(--text-faint)]">— · —</span>}
+          </div>
+        </div>
+        <div className="surface-2 !rounded-lg px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">Longitude</div>
+          <div className="text-sm font-mono mt-0.5" data-testid="store-lng">
+            {hasPin ? Number(form.lng).toFixed(5) : <span className="text-[var(--text-faint)]">— · —</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={useCurrentLocation}
+          disabled={pinning}
+          className="btn-primary !py-2 !px-3 text-xs flex-1 justify-center"
+          data-testid="store-pin-location"
+        >
+          {pinning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
+          {pinning ? "Pinning…" : hasPin ? "Re-pin" : "Use my current location"}
+        </button>
+        {hasPin && (
+          <button
+            type="button"
+            onClick={clear}
+            className="btn-ghost !py-2 !px-3 text-xs"
+            data-testid="store-clear-pin"
+          >
+            Clear pin
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <span className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+          Delivery radius (km)
+        </span>
+        <input
+          type="number"
+          min={0.5}
+          max={50}
+          step={0.5}
+          className="input mt-1"
+          value={form.delivery_radius_km}
+          onChange={(e) => setForm({ ...form, delivery_radius_km: Number(e.target.value) || 5 })}
+          data-testid="store-radius-input"
+        />
+        <div className="text-[10px] text-[var(--text-faint)] mt-1">
+          Recommended: 3–5 km. Customers further away than this will be blocked.
+        </div>
+      </div>
+
+      {!hasPin && (
+        <div
+          className="mt-3 p-2.5 rounded-lg text-[11px] text-[var(--warm)]"
+          style={{ background: "rgba(255,181,71,0.10)", border: "1px solid rgba(255,181,71,0.25)" }}
+        >
+          ⚠ No pin set yet. Range check is OFF — every customer can order regardless of distance.
+        </div>
+      )}
+    </div>
+  );
+}
+

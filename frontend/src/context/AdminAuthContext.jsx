@@ -64,8 +64,26 @@ export function AdminAuthProvider({ children }) {
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     setToken(data.access_token);
-    setUser(data.user);
-    return data.user;
+    api.defaults.headers.common.Authorization = `Bearer ${data.access_token}`;
+    // Pull canonical user (includes password_must_change etc.)
+    try {
+      const me = await api.get("/auth/me");
+      setUser(me.data);
+      return me.data;
+    } catch {
+      setUser(data.user);
+      return data.user;
+    }
+  };
+
+  const refreshMe = async () => {
+    try {
+      const { data } = await api.get("/auth/me");
+      setUser(data);
+      return data;
+    } catch {
+      return null;
+    }
   };
 
   const logout = () => {
@@ -74,7 +92,7 @@ export function AdminAuthProvider({ children }) {
   };
 
   return (
-    <AdminAuthContext.Provider value={{ user, token, login, logout }}>
+    <AdminAuthContext.Provider value={{ user, token, login, logout, refreshMe }}>
       {children}
     </AdminAuthContext.Provider>
   );

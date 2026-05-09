@@ -3,6 +3,8 @@ import { api } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
 import { toast } from "sonner";
 import ImageUpload from "@/components/ImageUpload";
+import StorefrontQRCard from "@/components/StorefrontQRCard";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 import {
   Power,
   Save,
@@ -162,6 +164,9 @@ export default function AdminStore() {
           <ExternalLink className="w-3.5 h-3.5" /> Open
         </a>
       </div>
+
+      {/* Storefront QR */}
+      <StorefrontQRCard slug={vendor.slug} vendorName={vendor.name} />
 
       {/* Edit form */}
       <div className="mt-6 surface p-4 md:p-5 space-y-4">
@@ -389,6 +394,7 @@ function NightPricingCard({ form, setForm, onSave, saving }) {
 
 
 function PasswordChangeCard() {
+  const { refreshMe } = useAdminAuth();
   const [form, setForm] = useState({ current_password: "", new_password: "", confirm: "" });
   const [show, setShow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -416,6 +422,7 @@ function PasswordChangeCard() {
       if (res.status === 200) {
         toast.success("Password changed");
         setForm({ current_password: "", new_password: "", confirm: "" });
+        if (refreshMe) await refreshMe();
       } else {
         toast.error(
           (res.data && (res.data.detail || res.data.message)) ||

@@ -19,6 +19,7 @@ import {
   BellOff,
   BellRing,
   BarChart3,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -267,6 +268,31 @@ export default function AdminLayout() {
         className="flex-1 min-w-0 pt-16 md:pt-0 pb-20 md:pb-0 overflow-x-hidden"
         data-testid="admin-content"
       >
+        {user.password_must_change && (
+          <div
+            className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-3 flex items-center gap-3"
+            style={{
+              background: "rgba(244,63,94,0.10)",
+              border: "1px solid rgba(244,63,94,0.35)",
+            }}
+            data-testid="seed-password-banner"
+          >
+            <AlertTriangle className="w-4 h-4 text-[#f43f5e] shrink-0" />
+            <div className="flex-1 text-xs leading-relaxed">
+              <span className="font-bold text-white">You're using the default password.</span>{" "}
+              {isMaster
+                ? "Change it now before going live."
+                : "Change it from Store settings before sharing your storefront."}
+            </div>
+            <NavLink
+              to={isMaster ? "/admin/master/security" : "/admin/store"}
+              className="btn-primary !py-1.5 !px-3 text-xs shrink-0"
+              data-testid="seed-password-fix-btn"
+            >
+              Fix now
+            </NavLink>
+          </div>
+        )}
         {isVendor && permission === "default" && (
           <div
             className="mx-4 md:mx-8 mt-4 md:mt-6 rounded-xl px-4 py-3 flex items-center gap-3"

@@ -171,6 +171,7 @@ async def seed_demo_vendor(db, hash_pw):
         "name": "Rajesh Sharma",
         "role": "vendor_admin",
         "vendor_id": vendor_id,
+        "password_must_change": True,
         "created_at": _now(),
     })
 

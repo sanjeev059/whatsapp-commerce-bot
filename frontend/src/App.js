@@ -22,6 +22,7 @@ import AdminStore from "@/pages/admin/AdminStore";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import MasterDashboard from "@/pages/admin/MasterDashboard";
 import MasterVendors from "@/pages/admin/MasterVendors";
+import MasterSecurity from "@/pages/admin/MasterSecurity";
 
 function App() {
   return (
@@ -44,6 +45,7 @@ function App() {
                 {/* Master admin pages */}
                 <Route path="master" element={<MasterDashboard />} />
                 <Route path="master/vendors" element={<MasterVendors />} />
+                <Route path="master/security" element={<MasterSecurity />} />
               </Route>
 
               {/* Customer storefront — slug-scoped */}

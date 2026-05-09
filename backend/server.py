@@ -24,6 +24,8 @@ from typing import List, Optional, Dict, Any
 import bcrypt
 import jwt
 import httpx
+import qrcode
+import io
 from collections import defaultdict, deque
 from threading import Lock
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, status
@@ -483,6 +485,41 @@ async def public_reverse_geocode(lat: float, lng: float):
     return res
 
 
+@api.get("/storefront/{slug}/qr.png")
+async def storefront_qr(slug: str, request: Request, size: int = 512):
+    """Public PNG QR code that, when scanned, opens the vendor's storefront."""
+    v = await db.vendors.find_one({"slug": slug, "subscription_active": True}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Store not found")
+    size = max(180, min(int(size), 1024))
+
+    # Build the absolute customer URL. Prefer X-Forwarded-Host if present.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") or f"{proto}://{host}"
+    target_url = f"{base}/store/{slug}"
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(target_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").resize((size, size))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "X-Storefront-URL": target_url,
+        },
+    )
+
+
 # ==================== orders (public POST + tracking GET) ====================
 @api.post(
     "/orders",
@@ -629,7 +666,8 @@ async def change_password(payload: PasswordChangeIn, user=Depends(auth_user)):
     if not full or not verify_pw(payload.current_password, full["password_hash"]):
         raise HTTPException(401, "Current password is incorrect")
     await db.users.update_one(
-        {"id": user["id"]}, {"$set": {"password_hash": hash_pw(payload.new_password)}}
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_pw(payload.new_password), "password_must_change": False}},
     )
     return {"ok": True}
 
@@ -726,6 +764,7 @@ async def create_vendor(payload: VendorCreate):
         "name": payload.owner_name.strip(),
         "role": "vendor_admin",
         "vendor_id": vendor_id,
+        "password_must_change": True,
         "created_at": now_iso(),
     })
 
@@ -1104,13 +1143,29 @@ api.include_router(master)
 api.include_router(vendor_r)
 app.include_router(api)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS — allow_origins="*" + allow_credentials=True is rejected by browsers, so:
+#   - in dev (CORS_ORIGINS unset): allow all origins, no credentials
+#   - in prod (CORS_ORIGINS="https://yourdomain.com,..."): tight whitelist + credentials
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors_env:
+    _origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origins=_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info("CORS locked to: %s", _origins)
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=False,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info("CORS open to all origins (set CORS_ORIGINS in prod)")
 
 
 # ==================== startup ====================
@@ -1139,8 +1194,16 @@ async def on_startup():
             "name": "Master Admin",
             "role": "master_admin",
             "vendor_id": None,
+            "password_must_change": True,
             "created_at": now_iso(),
         })
+
+    # Backfill: any pre-existing seeded user without the password_must_change field
+    # gets it set to True so the launch banner shows until they rotate.
+    await db.users.update_many(
+        {"password_must_change": {"$exists": False}, "email": {"$in": [me_email, "sharma-wines@vendor.local"]}},
+        {"$set": {"password_must_change": True}},
+    )
 
     # Seed shared categories/subgroups (always — these are platform-wide constants)
     if await db.categories.count_documents({}) == 0:

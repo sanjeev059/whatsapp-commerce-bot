@@ -351,6 +351,24 @@ function CredentialsModal({ payload, onClose }) {
     }
   };
 
+  const storefrontUrl = `${window.location.origin}/store/${payload.vendor.slug}`;
+  const qrUrl = `${process.env.REACT_APP_BACKEND_URL}/api/storefront/${payload.vendor.slug}/qr.png?size=400`;
+
+  const printQr = () => {
+    const w = window.open("", "_blank", "width=600,height=800");
+    if (!w) return toast.error("Pop-up blocked");
+    w.document.write(`
+      <html><head><title>${payload.vendor.name} — Storefront QR</title>
+      <style>body{font-family:system-ui,sans-serif;text-align:center;padding:40px}
+      h1{margin:0 0 4px}h2{font-weight:500;color:#64748b;margin:0 0 24px;letter-spacing:.05em;text-transform:uppercase;font-size:14px}
+      img{max-width:380px;width:100%;border:8px solid #fff;box-shadow:0 6px 30px rgba(0,0,0,.15);border-radius:12px}
+      .url{margin-top:18px;font-family:ui-monospace,monospace;font-size:13px;word-break:break-all}</style>
+      </head><body><h1>${payload.vendor.name}</h1><h2>Scan to order</h2>
+      <img src="${qrUrl}" /><div class="url">${storefrontUrl}</div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),300)</script></body></html>`);
+    w.document.close();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -359,7 +377,7 @@ function CredentialsModal({ payload, onClose }) {
       data-testid="credentials-modal"
     >
       <div
-        className="surface w-full max-w-md rounded-2xl p-6 fade-up"
+        className="surface w-full max-w-md rounded-2xl p-6 fade-up max-h-[90vh] overflow-y-auto thin-scroll"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 mb-3">
@@ -367,31 +385,32 @@ function CredentialsModal({ payload, onClose }) {
           <div className="text-base font-bold">Vendor onboarded</div>
         </div>
         <p className="text-xs text-[var(--text-muted)] mb-4">
-          Share these credentials with the vendor. They can change the password from their settings
-          later.
+          Share these with the vendor. Their first sign-in will require a password change.
         </p>
+
+        {/* QR preview + print */}
+        <div
+          className="rounded-xl p-3 mb-4 flex items-center gap-3"
+          style={{ background: "var(--surface-2)" }}
+        >
+          <img src={qrUrl} alt="QR" className="w-20 h-20 rounded-lg bg-white p-1.5" data-testid="cred-qr-img" />
+          <div className="flex-1 text-xs">
+            <div className="font-semibold text-white">Storefront QR</div>
+            <div className="text-[var(--text-muted)] mt-0.5">Print and stick on the shop window.</div>
+            <button onClick={printQr} className="mt-1.5 text-[var(--accent)] text-xs" data-testid="cred-qr-print">
+              Print poster
+            </button>
+          </div>
+        </div>
 
         <CredRow
           label="Login URL"
           value={`${window.location.origin}/admin/login`}
           onCopy={() => copy(`${window.location.origin}/admin/login`, "URL")}
         />
-        <CredRow
-          label="Email"
-          value={payload.admin_email}
-          onCopy={() => copy(payload.admin_email, "Email")}
-        />
-        <CredRow
-          label="Password"
-          value={payload.default_password}
-          mono
-          onCopy={() => copy(payload.default_password, "Password")}
-        />
-        <CredRow
-          label="Storefront"
-          value={`${window.location.origin}/store/${payload.vendor.slug}`}
-          onCopy={() => copy(`${window.location.origin}/store/${payload.vendor.slug}`, "URL")}
-        />
+        <CredRow label="Email" value={payload.admin_email} onCopy={() => copy(payload.admin_email, "Email")} />
+        <CredRow label="Password" value={payload.default_password} mono onCopy={() => copy(payload.default_password, "Password")} />
+        <CredRow label="Storefront" value={storefrontUrl} onCopy={() => copy(storefrontUrl, "URL")} />
 
         <button onClick={onClose} className="btn-primary w-full mt-4 text-sm" data-testid="cred-modal-done">
           Done

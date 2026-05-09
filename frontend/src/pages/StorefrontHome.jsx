@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/apiClient";
+import PerVendorPWA from "@/components/PerVendorPWA";
+import InstallAppHint from "@/components/InstallAppHint";
 import { ArrowRight, MapPin, Clock, Store } from "lucide-react";
 
 export default function StorefrontHome() {
@@ -45,6 +47,8 @@ export default function StorefrontHome() {
   const v = data.vendor;
   return (
     <div className="min-h-[100dvh] relative overflow-hidden" data-testid="storefront-home">
+      <PerVendorPWA vendor={v} />
+      <InstallAppHint vendorName={v.name} />
       <div aria-hidden className="absolute -top-20 left-0 right-0 h-72 opacity-40 blur-3xl"
         style={{ background: "radial-gradient(circle at 50% 0%, var(--accent), transparent 60%)" }} />
 

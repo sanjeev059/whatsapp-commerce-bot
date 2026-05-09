@@ -542,6 +542,28 @@ async def public_reverse_geocode(lat: float, lng: float):
     return res
 
 
+def _public_base_url(request: Request) -> str:
+    """
+    Resolve the customer-facing base URL for QR codes / manifests.
+    Order of preference:
+      1. PUBLIC_BASE_URL env var (the recommended way — set this on Render to https://www.gharsip.com).
+      2. If request host looks like a backend-only host (onrender / herokuapp / railway / fly.dev /
+         emergentagent preview), fall back to GHARSIP_PROD_URL or hardcoded https://www.gharsip.com.
+         This protects QRs even when env is forgotten in production.
+      3. Otherwise (local dev, custom domain on backend), echo the incoming host.
+    """
+    explicit = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if explicit:
+        return explicit
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host", "")).lower()
+    backend_only_hosts = ("onrender.com", "herokuapp.com", "railway.app", "fly.dev",
+                         "preview.emergentagent.com", "preview.emergent.host")
+    if any(h in host for h in backend_only_hosts):
+        return os.environ.get("GHARSIP_PROD_URL", "https://www.gharsip.com").rstrip("/")
+    return f"{proto}://{host}"
+
+
 @api.get("/storefront/{slug}/qr.png")
 async def storefront_qr(slug: str, request: Request, size: int = 512):
     """Public PNG QR code that, when scanned, opens the vendor's storefront."""
@@ -550,10 +572,7 @@ async def storefront_qr(slug: str, request: Request, size: int = 512):
         raise HTTPException(404, "Store not found")
     size = max(180, min(int(size), 1024))
 
-    # Build the absolute customer URL. Prefer X-Forwarded-Host if present.
-    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
-    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") or f"{proto}://{host}"
+    base = _public_base_url(request)
     target_url = f"{base}/store/{slug}"
 
     qr = qrcode.QRCode(
@@ -571,7 +590,7 @@ async def storefront_qr(slug: str, request: Request, size: int = 512):
         content=buf.getvalue(),
         media_type="image/png",
         headers={
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "no-cache, must-revalidate",
             "X-Storefront-URL": target_url,
         },
     )

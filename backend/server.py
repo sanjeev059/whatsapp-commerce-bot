@@ -17,6 +17,7 @@ load_dotenv(ROOT_DIR / ".env")
 import os
 import re
 import uuid
+import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any, Literal
@@ -1216,6 +1217,38 @@ async def update_vendor(vid: str, payload: VendorUpdate):
     if not res:
         raise HTTPException(404, "Vendor not found")
     return res
+
+
+def _random_store_admin_temp_password(slug: str) -> str:
+    """Typable one-time password; vendor is forced to change on next login."""
+    clean = re.sub(r"[^a-z0-9]", "", (slug or "store").lower())[:12] or "store"
+    suffix = "".join(secrets.choice("23456789abcdefghjkmnpqrstuvwxyz") for _ in range(5))
+    return f"{clean}{suffix}"
+
+
+@master.post("/vendors/{vid}/reset-admin-password")
+async def master_reset_vendor_admin_password(vid: str):
+    """Generate a new store login password. Old password stops working immediately."""
+    v = await db.vendors.find_one({"id": vid}, {"_id": 0, "id": 1, "slug": 1, "name": 1})
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    u = await db.users.find_one(
+        {"vendor_id": vid, "role": "vendor_admin"}, {"_id": 0, "id": 1, "email": 1}
+    )
+    if not u:
+        raise HTTPException(404, "No store admin account for this vendor")
+    new_pw = _random_store_admin_temp_password(v.get("slug") or "")
+    await db.users.update_one(
+        {"id": u["id"]},
+        {"$set": {"password_hash": hash_pw(new_pw), "password_must_change": True}},
+    )
+    return {
+        "vendor_id": vid,
+        "vendor_name": v.get("name", ""),
+        "admin_email": u["email"],
+        "new_password": new_pw,
+        "password_must_change": True,
+    }
 
 
 @master.delete("/vendors/{vid}")

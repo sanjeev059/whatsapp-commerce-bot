@@ -13,6 +13,7 @@ import {
   Save,
   Trash2,
   Calendar,
+  KeyRound,
 } from "lucide-react";
 
 export default function MasterVendors() {
@@ -20,6 +21,7 @@ export default function MasterVendors() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState(null); // post-creation modal with default credentials
+  const [passwordReset, setPasswordReset] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -83,6 +85,22 @@ export default function MasterVendors() {
       await api.patch(`/master/vendors/${v.id}`, payload);
       toast.success(trimmed ? `Expiry → ${trimmed}` : "Expiry cleared");
       load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    }
+  };
+
+  const resetStorePassword = async (v) => {
+    if (
+      !window.confirm(
+        `Generate a new password for "${v.name}"?\n\n${v.admin_email || "Store admin"}\n\nThe current password will stop working immediately.`
+      )
+    )
+      return;
+    try {
+      const { data } = await api.post(`/master/vendors/${v.id}/reset-admin-password`);
+      setPasswordReset(data);
+      toast.success("New store password generated — copy it now.");
     } catch (e) {
       toast.error(apiErrorMessage(e));
     }
@@ -199,6 +217,14 @@ export default function MasterVendors() {
                 >
                   <Calendar className="w-4 h-4" />
                 </button>
+                <button
+                  onClick={() => resetStorePassword(v)}
+                  className="p-2 rounded-md hover:bg-[var(--surface-2)] text-[var(--text-muted)]"
+                  data-testid={`vendor-reset-pw-${v.slug}`}
+                  title="Reset store admin password"
+                >
+                  <KeyRound className="w-4 h-4" />
+                </button>
                 <a
                   href={`/store/${v.slug}`}
                   target="_blank"
@@ -247,6 +273,7 @@ export default function MasterVendors() {
       )}
 
       {created && <CredentialsModal payload={created} onClose={() => setCreated(null)} />}
+      {passwordReset && <ResetPasswordModal data={passwordReset} onClose={() => setPasswordReset(null)} />}
     </div>
   );
 }
@@ -761,6 +788,50 @@ function CredentialsModal({ payload, onClose }) {
         )}
 
         <button onClick={onClose} className="btn-primary w-full mt-4 text-sm" data-testid="cred-modal-done">
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordModal({ data, onClose }) {
+  const copy = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+      data-testid="reset-password-modal"
+    >
+      <div
+        className="surface w-full max-w-md rounded-2xl p-6 fade-up max-h-[90vh] overflow-y-auto thin-scroll"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <KeyRound className="w-5 h-5 text-[var(--warm)]" />
+          <div className="text-base font-bold">New store login</div>
+        </div>
+        <p className="text-xs text-[var(--text-muted)] mb-4">
+          Copy and share with <strong className="text-white">{data.vendor_name}</strong> securely. The old password no
+          longer works. They sign in at the store login page; they may be asked to choose a new password.
+        </p>
+        <CredRow label="Login URL" value={`${window.location.origin}/admin/login`} onCopy={() => copy(`${window.location.origin}/admin/login`, "URL")} />
+        <CredRow label="Email" value={data.admin_email} onCopy={() => copy(data.admin_email, "Email")} />
+        <CredRow label="New password" value={data.new_password} mono onCopy={() => copy(data.new_password, "Password")} />
+        <button
+          onClick={onClose}
+          className="btn-primary w-full mt-4 text-sm"
+          data-testid="reset-password-modal-done"
+        >
           Done
         </button>
       </div>

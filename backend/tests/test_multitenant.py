@@ -388,6 +388,52 @@ class TestMaster:
         for o in r.json():
             assert "vendor_name" in o
 
+    def test_master_reset_store_admin_password(self, master_s, s):
+        slug = f"rstpw-{uuid.uuid4().hex[:6]}"
+        cr = master_s.post(
+            f"{BASE_URL}/api/master/vendors",
+            json={
+                "name": f"TEST Reset {slug}",
+                "slug": slug,
+                "owner_name": "Owner",
+                "owner_phone": "9999999999",
+                "address": "a",
+                "upi_id": "x@upi",
+                "license_info": "",
+                "accepts_tos": True,
+                "tos_signature_name": "Legal Name",
+            },
+        )
+        assert cr.status_code == 200, cr.text
+        vid = cr.json()["vendor"]["id"]
+        email = cr.json()["admin_email"]
+        old_pw = cr.json()["default_password"]
+        r = master_s.post(f"{BASE_URL}/api/master/vendors/{vid}/reset-admin-password")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["admin_email"] == email
+        assert d["new_password"] != old_pw
+        assert len(d["new_password"]) >= 8
+        assert s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": email, "password": old_pw, "portal": "store"},
+        ).status_code == 401
+        ok = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": email, "password": d["new_password"], "portal": "store"},
+        )
+        assert ok.status_code == 200
+        assert ok.json()["user"].get("password_must_change") is True
+
+    def test_vendor_cannot_reset_other_admin_password(self, vendor_s, master_s):
+        demo_vid = next(
+            v["id"]
+            for v in master_s.get(f"{BASE_URL}/api/master/vendors").json()
+            if v["slug"] == DEMO_SLUG
+        )
+        r = vendor_s.post(f"{BASE_URL}/api/master/vendors/{demo_vid}/reset-admin-password")
+        assert r.status_code == 403
+
     def test_create_vendor_requires_tos(self, master_s):
         r = master_s.post(f"{BASE_URL}/api/master/vendors", json={
             "name": "TEST Brewers", "owner_name": "Z", "owner_phone": "1",

@@ -195,16 +195,38 @@ export default function AdminProducts() {
                 {formatINR(p.price)}
               </div>
               <div className="hidden md:flex justify-center">
-                <span
-                  className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
-                  style={
-                    p.in_stock
-                      ? { background: "rgba(34,210,122,0.14)", color: "#22d27a" }
-                      : { background: "rgba(244,63,94,0.14)", color: "#f43f5e" }
-                  }
-                >
-                  {p.in_stock ? "In stock" : "Hidden"}
-                </span>
+                {!p.in_stock ? (
+                  <span
+                    className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
+                    style={{ background: "rgba(244,63,94,0.14)", color: "#f43f5e" }}
+                  >
+                    Hidden
+                  </span>
+                ) : typeof p.stock_count === "number" && p.stock_count === 0 ? (
+                  <span
+                    className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                    style={{ background: "rgba(244,63,94,0.14)", color: "#f43f5e" }}
+                    data-testid={`product-out-${p.id}`}
+                  >
+                    Out of stock
+                  </span>
+                ) : typeof p.stock_count === "number" && p.stock_count <= 5 ? (
+                  <span
+                    className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                    style={{ background: "rgba(255,181,71,0.14)", color: "var(--warm)" }}
+                    data-testid={`product-low-${p.id}`}
+                    title="Low stock"
+                  >
+                    Low · {p.stock_count}
+                  </span>
+                ) : (
+                  <span
+                    className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
+                    style={{ background: "rgba(34,210,122,0.14)", color: "#22d27a" }}
+                  >
+                    In stock{typeof p.stock_count === "number" ? ` · ${p.stock_count}` : ""}
+                  </span>
+                )}
               </div>
               <div className="flex justify-end gap-1">
                 <button
@@ -269,6 +291,7 @@ function ProductFormModal({ product, categories, subgroups, onClose, onSaved }) 
           tag: "",
           description: "",
           in_stock: true,
+          stock_count: "",
         }
   );
   const [submitting, setSubmitting] = useState(false);
@@ -298,7 +321,13 @@ function ProductFormModal({ product, categories, subgroups, onClose, onSaved }) 
     }
     setSubmitting(true);
     try {
-      const payload = { ...form, price: parseFloat(form.price) };
+      const payload = {
+        ...form,
+        price: parseFloat(form.price),
+        stock_count: form.stock_count === "" || form.stock_count == null
+          ? null
+          : Number(form.stock_count),
+      };
       let saved;
       if (isNew) {
         const { data } = await api.post("/vendor/products", payload);
@@ -446,6 +475,22 @@ function ProductFormModal({ product, categories, subgroups, onClose, onSaved }) 
                 setForm({ ...form, description: e.target.value })
               }
               data-testid="form-description"
+            />
+          </Field>
+          <Field label="Stock count (optional)" hint="Leave blank if you don't track. Customers will see 'Only N left' when ≤ 5.">
+            <input
+              type="number"
+              min={0}
+              className="input"
+              placeholder="e.g. 12"
+              value={form.stock_count ?? ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  stock_count: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0),
+                })
+              }
+              data-testid="form-stock-count"
             />
           </Field>
           <label className="flex items-center gap-2 text-sm pt-1">

@@ -197,11 +197,16 @@ function OrderDetailModal({ order, onClose, onStatus }) {
       order.payment_mode === "cod"
         ? `Collect ₹${Math.round(order.total)} cash on delivery.`
         : `Already paid via UPI. No cash to collect.`;
+    const mapsLine =
+      order.customer_lat && order.customer_lng
+        ? `\n📍 Maps: https://maps.google.com/?q=${order.customer_lat},${order.customer_lng}\n`
+        : "\n";
     const msg =
       `*New delivery — Order #${order.short_id}*\n` +
       `${order.customer_name} · ${order.customer_phone}\n` +
-      `${order.delivery_address}\n\n` +
-      `${totalLine}\n\n` +
+      `${order.delivery_address}` +
+      mapsLine +
+      `\n${totalLine}\n\n` +
       `Open this link to confirm delivery (photo required):\n${deliveryUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
   };

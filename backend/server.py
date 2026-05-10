@@ -386,6 +386,7 @@ class ProductCreate(BaseModel):
     tag: str = ""
     description: str = ""
     in_stock: bool = True
+    stock_count: Optional[int] = None  # null = untracked. Number = current stock.
 
 
 class ProductUpdate(BaseModel):
@@ -397,6 +398,7 @@ class ProductUpdate(BaseModel):
     unit: Optional[str] = None
     tag: Optional[str] = None
     in_stock: Optional[bool] = None
+    stock_count: Optional[int] = None
 
 
 class OrderItemIn(BaseModel):

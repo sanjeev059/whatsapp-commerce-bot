@@ -44,6 +44,28 @@ export default function ProductCard({ product, categoryId, subgroupId }) {
             {product.unit}
           </div>
         ) : null}
+        <div className="flex flex-wrap gap-1.5 mt-1">
+          {categoryId === "cigarettes" && (
+            <span
+              className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold"
+              style={{ background: "rgba(255,181,71,0.14)", color: "var(--warm)" }}
+              data-testid={`product-fullpack-${product.id}`}
+            >
+              Full pack only
+            </span>
+          )}
+          {typeof product.stock_count === "number" &&
+            product.stock_count > 0 &&
+            product.stock_count <= 5 && (
+              <span
+                className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold"
+                style={{ background: "rgba(244,63,94,0.14)", color: "#f43f5e" }}
+                data-testid={`product-low-stock-${product.id}`}
+              >
+                Only {product.stock_count} left
+              </span>
+            )}
+        </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="text-[15px] font-bold" data-testid={`product-price-${product.id}`}>

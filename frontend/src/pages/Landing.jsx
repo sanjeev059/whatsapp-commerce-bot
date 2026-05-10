@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Sparkles, Store } from "lucide-react";
+import { Sparkles, Store } from "lucide-react";
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -33,13 +33,18 @@ export default function Landing() {
         </p>
 
         <div className="mt-8 flex flex-col gap-3">
-          <a href="/store/sharma-wines" className="btn-primary" data-testid="store-cta">
-            <Store className="w-4 h-4" /> Just a Store →
-          </a>
-          <button onClick={() => navigate("/admin/login")} className="btn-ghost justify-center" data-testid="login-cta">
-            Store sign in
-            <ArrowRight className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={() => navigate("/admin/login")}
+            className="btn-primary justify-center"
+            data-testid="store-cta"
+          >
+            <Store className="w-4 h-4" /> Store admin sign in
           </button>
+          <p className="text-sm text-[var(--text-muted)] leading-relaxed">
+            Ordering as a customer? Open the menu link or QR from your local store — each shop has its own page, e.g.{" "}
+            <span className="font-mono text-[var(--text-faint)]">/store/your-shop</span>.
+          </p>
         </div>
 
         <p className="mt-8 text-[11px] text-[var(--text-faint)] uppercase tracking-[0.18em] leading-relaxed">

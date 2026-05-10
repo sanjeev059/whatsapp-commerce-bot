@@ -208,6 +208,7 @@ export default function AdminLayout() {
   const mobileLinks = isMaster
     ? masterLinks
     : vendorLinks.filter((l) => l.label !== "Store settings"); // 4 items fit on mobile
+  const vendorStorefrontSlug = !isMaster ? user?.vendor?.slug : null;
 
   return (
     <div className="min-h-[100dvh] flex" data-testid="admin-layout">
@@ -254,13 +255,11 @@ export default function AdminLayout() {
               <it.icon className="w-4 h-4" /> {it.label}
             </NavLink>
           ))}
-          {!isMaster && (
+          {!isMaster && vendorStorefrontSlug && (
             <a
-              href={`/store/${user.vendor_id ? "" : ""}`}
-              onClick={(e) => {
-                e.preventDefault();
-                window.open("/", "_blank", "noopener,noreferrer");
-              }}
+              href={`/store/${vendorStorefrontSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={`${linkBase} ${linkInactive}`}
               data-testid="nav-storefront"
             >

@@ -482,6 +482,57 @@ class TestMaster:
 
         # cleanup not strictly necessary; vendor remains as TEST_
 
+    def test_deactivate_one_vendor_does_not_affect_another(self, master_s, s):
+        slug_a = f"iso-a-{uuid.uuid4().hex[:6]}"
+        slug_b = f"iso-b-{uuid.uuid4().hex[:6]}"
+        try:
+            for slug in (slug_a, slug_b):
+                r = master_s.post(
+                    f"{BASE_URL}/api/master/vendors",
+                    json={
+                        "name": f"TEST ISO {slug}",
+                        "slug": slug,
+                        "owner_name": "O",
+                        "owner_phone": "9999999999",
+                        "address": "a",
+                        "upi_id": "x@upi",
+                        "license_info": "",
+                        "accepts_tos": True,
+                    },
+                )
+                assert r.status_code == 200, r.text
+
+            vendors = master_s.get(f"{BASE_URL}/api/master/vendors").json()
+            vid_a = next(v["id"] for v in vendors if v["slug"] == slug_a)
+            vid_b = next(v["id"] for v in vendors if v["slug"] == slug_b)
+
+            assert master_s.delete(f"{BASE_URL}/api/master/vendors/{vid_a}").status_code == 200
+
+            sf_b = s.get(f"{BASE_URL}/api/storefront/{slug_b}")
+            assert sf_b.status_code == 200
+            assert sf_b.json()["vendor"]["slug"] == slug_b
+            assert sf_b.json()["available"] is True
+
+            vendors_after = master_s.get(f"{BASE_URL}/api/master/vendors").json()
+            b_row = next(v for v in vendors_after if v["slug"] == slug_b)
+            a_row = next(v for v in vendors_after if v["slug"] == slug_a)
+            assert b_row["subscription_active"] is True
+            assert a_row["subscription_active"] is False
+        finally:
+            for slug in (slug_a, slug_b):
+                try:
+                    row = next(
+                        (v for v in master_s.get(f"{BASE_URL}/api/master/vendors").json() if v["slug"] == slug),
+                        None,
+                    )
+                    if row:
+                        master_s.patch(
+                            f"{BASE_URL}/api/master/vendors/{row['id']}",
+                            json={"subscription_active": True},
+                        )
+                except Exception:
+                    pass
+
     def test_create_vendor_duplicate_slug_400(self, master_s):
         r = master_s.post(f"{BASE_URL}/api/master/vendors", json={
             "name": "Dup", "slug": DEMO_SLUG, "owner_name": "X",

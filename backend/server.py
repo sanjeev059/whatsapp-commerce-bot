@@ -1206,8 +1206,17 @@ async def create_vendor(payload: VendorCreate, request: Request):
     return {"vendor": vendor, "admin_email": admin_email, "default_password": default_pw}
 
 
+def _parse_vendor_id(vid: str) -> str:
+    """Normalize master route vendor id — multi-tenant updates must never use empty/garbage ids."""
+    clean = (vid or "").strip()
+    if not clean:
+        raise HTTPException(400, "Invalid vendor id")
+    return clean
+
+
 @master.patch("/vendors/{vid}")
 async def update_vendor(vid: str, payload: VendorUpdate):
+    vid = _parse_vendor_id(vid)
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update:
         raise HTTPException(400, "Nothing to update")
@@ -1216,6 +1225,9 @@ async def update_vendor(vid: str, payload: VendorUpdate):
     )
     if not res:
         raise HTTPException(404, "Vendor not found")
+    if res.get("id") != vid:
+        logger.error("update_vendor id mismatch: path=%s doc=%s", vid, res.get("id"))
+        raise HTTPException(500, "Vendor update inconsistency")
     return res
 
 
@@ -1229,6 +1241,7 @@ def _random_store_admin_temp_password(slug: str) -> str:
 @master.post("/vendors/{vid}/reset-admin-password")
 async def master_reset_vendor_admin_password(vid: str):
     """Generate a new store login password. Old password stops working immediately."""
+    vid = _parse_vendor_id(vid)
     v = await db.vendors.find_one({"id": vid}, {"_id": 0, "id": 1, "slug": 1, "name": 1})
     if not v:
         raise HTTPException(404, "Vendor not found")
@@ -1254,6 +1267,7 @@ async def master_reset_vendor_admin_password(vid: str):
 @master.delete("/vendors/{vid}")
 async def deactivate_vendor(vid: str):
     """Soft-disable: turns subscription off (storefront becomes unavailable)."""
+    vid = _parse_vendor_id(vid)
     res = await db.vendors.update_one(
         {"id": vid}, {"$set": {"subscription_active": False}}
     )
@@ -1347,6 +1361,7 @@ async def platform_billing_qr(size: int = 512):
 @master.post("/vendors/{vid}/payments")
 async def master_record_payment(vid: str, payload: PaymentRecordIn, user=Depends(require_master)):
     """Marks a vendor as paid for N days; auto-extends subscription_expires_at; logs audit row."""
+    vid = _parse_vendor_id(vid)
     v = await db.vendors.find_one({"id": vid}, {"_id": 0})
     if not v:
         raise HTTPException(404, "Vendor not found")
@@ -1889,6 +1904,7 @@ async def master_list_offers(vendor_id: Optional[str] = None, user=Depends(requi
 
 @master.post("/vendors/{vid}/offers")
 async def master_create_offer(vid: str, payload: OfferCreate, user=Depends(require_master)):
+    vid = _parse_vendor_id(vid)
     if not await db.vendors.find_one({"id": vid}, {"_id": 1}):
         raise HTTPException(404, "Vendor not found")
     return await _create_offer(vid, payload, created_by=f"master:{user.get('email')}")

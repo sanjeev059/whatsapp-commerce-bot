@@ -29,6 +29,7 @@ import MasterSecurity from "@/pages/admin/MasterSecurity";
 import MasterBilling from "@/pages/admin/MasterBilling";
 import MasterPayments from "@/pages/admin/MasterPayments";
 import MasterOffers from "@/pages/admin/MasterOffers";
+import Terms from "@/pages/Terms";
 
 function App() {
   return (
@@ -57,6 +58,8 @@ function App() {
                 <Route path="master/offers" element={<MasterOffers />} />
                 <Route path="master/security" element={<MasterSecurity />} />
               </Route>
+
+              <Route path="/terms" element={<Terms />} />
 
               {/* Customer storefront — slug-scoped, age-gated */}
               <Route path="/" element={<Landing />} />

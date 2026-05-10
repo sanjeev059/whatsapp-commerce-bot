@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate, Navigate, useLocation } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { api } from "@/lib/apiClient";
-import { useNewOrderAlerts } from "@/hooks/useNewOrderAlerts";
+import { useNewOrderAlerts, primeOrderAlertAudio } from "@/hooks/useNewOrderAlerts";
 import { subscribeVendorPush, isPushSupported, sendTestPush } from "@/lib/push";
 import { toast } from "sonner";
 import {
@@ -45,11 +45,22 @@ export default function AdminLayout() {
       } catch {}
     };
     load();
-    const id = setInterval(load, 15000);
+    const id = setInterval(load, 10000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
+  }, [isVendor]);
+
+  // Unlock Web Audio on first tap anywhere in admin (autoplay policy).
+  useEffect(() => {
+    if (!isVendor) return;
+    const once = () => {
+      primeOrderAlertAudio();
+      document.removeEventListener("pointerdown", once, true);
+    };
+    document.addEventListener("pointerdown", once, true);
+    return () => document.removeEventListener("pointerdown", once, true);
   }, [isVendor]);
 
   const { permission, requestPermission } = useNewOrderAlerts(pendingOrders, {
@@ -82,13 +93,35 @@ export default function AdminLayout() {
   };
 
   const enablePush = async () => {
+    primeOrderAlertAudio();
     const result = await requestPermission();
-    if (result === "granted") {
-      const sub = await subscribeVendorPush();
-      if (sub) {
-        setPushSubscribed(true);
-        toast.success("Push notifications enabled");
+    if (result !== "granted") {
+      if (result === "denied") {
+        toast.error("Notifications blocked — allow them in the browser address bar for this site.");
       }
+      return;
+    }
+
+    let vapidOk = false;
+    try {
+      const { data } = await api.get("/push/vapid-public-key", { headers: { Authorization: "" } });
+      vapidOk = !!data?.enabled;
+    } catch {
+      /* ignore */
+    }
+
+    const sub = await subscribeVendorPush();
+    if (sub) {
+      setPushSubscribed(true);
+      toast.success("Background push enabled on this device");
+    } else if (!vapidOk) {
+      toast.message("In-tab new-order alerts are on", {
+        description:
+          "You'll get a chime and a banner when new orders arrive while this tab stays open. To alert when the tab is closed, set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY_PEM on your API server, then tap Enable again.",
+        duration: 14000,
+      });
+    } else {
+      toast.error("Could not subscribe to push — try another browser or check site is HTTPS");
     }
   };
 
@@ -338,8 +371,9 @@ export default function AdminLayout() {
           >
             <Bell className="w-4 h-4 text-[#60a5fa] shrink-0" />
             <div className="flex-1 text-xs leading-relaxed">
-              <span className="font-semibold text-white">Get instant alerts</span> for new orders —
-              chime + notification, even when this tab is closed.
+              <span className="font-semibold text-white">New order alerts</span> — allow notifications,
+              then tap once anywhere in this panel so the chime can play (browser rule). You'll also see
+              an on-screen toast for each new order.
             </div>
             <button
               onClick={enablePush}
@@ -383,7 +417,8 @@ export default function AdminLayout() {
           >
             <BellOff className="w-3.5 h-3.5 text-[#f43f5e] shrink-0" />
             <div className="text-[var(--text-muted)] leading-relaxed">
-              Browser notifications blocked. You'll still hear the chime when new orders come in.
+              Browser notifications blocked — you'll still get <strong className="text-white">toasts + chime</strong>{" "}
+              while this tab is open (tap the page once if you don't hear sound).
             </div>
           </div>
         )}

@@ -39,6 +39,7 @@ import json as json_mod
 import asyncio
 
 from seed_data import seed_initial_catalog
+from aisensy_notify import notify_order_placed, notify_order_status
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -781,6 +782,12 @@ async def place_order(payload: OrderCreate):
     except Exception as e:
         logger.warning("push_to_vendor failed: %s", e)
 
+    # AiSensy WhatsApp — customer + vendor (best-effort)
+    try:
+        await notify_order_placed(order, v)
+    except Exception as e:
+        logger.warning("notify_order_placed (AiSensy) failed: %s", e)
+
     return {"short_id": short_id, "tracking_token": tracking_token, "status": initial_status, "total": total}
 
 
@@ -889,6 +896,13 @@ async def delivery_mark_delivered(token: str, file: UploadFile = File(...)):
         })
     except Exception as e:
         logger.warning("delivered push failed: %s", e)
+
+    if v:
+        try:
+            o_after = {**o, "status": "delivered", "status_history": new_history, "delivered_at": now_ts}
+            await notify_order_status(o_after, v, "delivered")
+        except Exception as e:
+            logger.warning("notify_order_status delivered (AiSensy) failed: %s", e)
 
     return {"ok": True, "status": "delivered", "delivered_at": now_ts, "proof_image_id": image_id}
 
@@ -1535,6 +1549,7 @@ async def vendor_update_order(oid: str, payload: OrderStatusUpdate, user=Depends
     o = await db.orders.find_one({"id": oid, "vendor_id": user["vendor_id"]}, {"_id": 0})
     if not o:
         raise HTTPException(404, "Order not found")
+    prev_status = o.get("status")
     history = o.get("status_history", []) + [{"status": payload.status, "at": now_iso()}]
     res = await db.orders.find_one_and_update(
         {"id": oid},
@@ -1542,6 +1557,11 @@ async def vendor_update_order(oid: str, payload: OrderStatusUpdate, user=Depends
         return_document=True,
         projection={"_id": 0},
     )
+    if res and payload.status != prev_status:
+        try:
+            await notify_order_status(res, user["vendor"], payload.status)
+        except Exception as e:
+            logger.warning("notify_order_status (AiSensy) failed: %s", e)
     return res
 
 

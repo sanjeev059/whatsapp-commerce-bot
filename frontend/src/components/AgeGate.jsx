@@ -65,14 +65,15 @@ export default function AgeGate({ slug, vendorName, onAccept, children }) {
           <ShieldCheck className="w-7 h-7 text-[var(--warm)]" />
         </div>
         <div className="mt-4 text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)] font-bold">
-          Age verification · 21+ only
+          Age check · restricted categories
         </div>
         <h1 className="text-2xl font-extrabold mt-1 leading-tight">
           Confirm you are <span className="text-[var(--warm)]">21 years or older</span>
         </h1>
         <p className="text-sm text-[var(--text-muted)] mt-3 leading-relaxed">
-          You are about to view <span className="font-semibold text-white">{vendorName || "a"}</span>'s
-          private storefront. Liquor and tobacco products may be listed.
+          You are about to view <span className="font-semibold text-white">{vendorName || "a"}</span>&rsquo;s
+          private storefront. <strong className="text-white">Age-restricted or regulated products</strong> may be
+          listed depending on what this store sells.
         </p>
 
         <div
@@ -94,12 +95,12 @@ export default function AgeGate({ slug, vendorName, onAccept, children }) {
               quality, license compliance, packaging, and delivery.
             </li>
             <li>
-              You must be <strong>21 years or older</strong> to purchase liquor or tobacco. The
-              delivery person will verify your age and refuse delivery if unable to confirm.
+              You must meet <strong>legal age</strong> for any age-restricted items you order. The
+              vendor verifies age at handover where required.
             </li>
             <li>
-              By continuing, you confirm you are 21+, are of sound mind, and understand that
-              GharSip is not the merchant of record. Drink responsibly.
+              By continuing, you confirm you meet that age, are of sound mind, and understand that
+              GharSip is not the merchant of record.
             </li>
           </ul>
         </div>

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Sparkles, Store } from "lucide-react";
 
 export default function Landing() {
@@ -19,7 +19,7 @@ export default function Landing() {
           }}>
             <Sparkles className="w-5 h-5 text-black" />
           </div>
-          <span className="text-sm font-semibold tracking-wide text-[var(--text-muted)]">LOCAL COMMERCE</span>
+          <span className="text-sm font-semibold tracking-wide text-[var(--text-muted)]">GHARSIP</span>
         </div>
 
         <h1 className="text-[44px] leading-[1.05] font-extrabold tracking-tight" data-testid="landing-heading">
@@ -33,8 +33,8 @@ export default function Landing() {
         </p>
 
         <div className="mt-8 flex flex-col gap-3">
-          <a href="/store/sharma-wines" className="btn-primary" data-testid="demo-store-cta">
-            <Store className="w-4 h-4" /> Liquor Store →
+          <a href="/store/sharma-wines" className="btn-primary" data-testid="store-cta">
+            <Store className="w-4 h-4" /> Just a Store →
           </a>
           <button onClick={() => navigate("/admin/login")} className="btn-ghost justify-center" data-testid="login-cta">
             Vendor / Admin login
@@ -42,8 +42,15 @@ export default function Landing() {
           </button>
         </div>
 
-        <p className="mt-8 text-[11px] text-[var(--text-faint)] uppercase tracking-[0.2em]">
-          21+ only · Drink responsibly · Vendor responsible for compliance
+        <p className="mt-8 text-[11px] text-[var(--text-faint)] uppercase tracking-[0.18em] leading-relaxed">
+          Vendors are solely responsible for products, compliance &amp; fulfilment.
+          <span className="block mt-2 normal-case tracking-normal">
+            <Link to="/terms" className="underline underline-offset-2 hover:text-white">
+              Terms &amp; conditions
+            </Link>
+            {" · "}
+            By using GharSip you agree to these terms.
+          </span>
         </p>
       </div>
     </div>

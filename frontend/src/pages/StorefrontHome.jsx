@@ -72,7 +72,7 @@ export default function StorefrontHome() {
             </p>
           )}
           <p className="mt-4 text-[15px] text-[var(--text-muted)] leading-relaxed fade-up">
-            Liquor orders <span className="text-white font-semibold">above ₹1000 only</span>. Pay via UPI on checkout.
+            Some categories may have <span className="text-white font-semibold">minimum order rules</span>. Pay via UPI on checkout.
           </p>
           {v.opening_time && v.closing_time && (
             <p className="mt-2 text-xs text-[var(--text-faint)] flex items-center gap-1.5">
@@ -85,8 +85,11 @@ export default function StorefrontHome() {
           Open Store
           <ArrowRight className="w-5 h-5" />
         </button>
-        <p className="text-center text-[11px] text-[var(--text-faint)] mt-3 uppercase tracking-[0.2em]">
-          21+ only · Drink responsibly
+        <p className="text-center text-[11px] text-[var(--text-faint)] mt-3 uppercase tracking-[0.15em]">
+          Vendor responsible for compliance ·{" "}
+          <a href="/terms" className="underline underline-offset-2 hover:text-white normal-case">
+            Terms
+          </a>
         </p>
       </div>
     </div>

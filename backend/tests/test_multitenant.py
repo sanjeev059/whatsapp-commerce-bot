@@ -276,6 +276,42 @@ class TestAuth:
         assert r.status_code == 200
         assert r.json()["user"]["role"] == "master_admin"
 
+    def test_create_vendor_rejects_bad_aadhaar_checksum(self, master_s):
+        r = master_s.post(f"{BASE_URL}/api/master/vendors", json={
+            "name": "TEST Bad Aadhaar", "owner_name": "X", "owner_phone": "9",
+            "address": "a", "upi_id": "x@u", "license_info": "",
+            "accepts_tos": True, "tos_signature_name": "Test Legal Name",
+            "owner_aadhar": "111111111111",
+        })
+        assert r.status_code == 400
+
+    def test_create_vendor_accepts_valid_aadhaar_checksum(self, master_s, s):
+        slug = f"aadhaar-{uuid.uuid4().hex[:6]}"
+        r = master_s.post(f"{BASE_URL}/api/master/vendors", json={
+            "name": f"TEST {slug}", "slug": slug, "owner_name": "Owner",
+            "owner_phone": "9999999999", "address": "addr",
+            "upi_id": "x@upi", "license_info": "FL-TEST",
+            "accepts_tos": True, "tos_signature_name": "Owner Legal Full Name",
+            "owner_aadhar": "543719411889",
+        })
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["vendor"]["owner_aadhar"] == "543719411889"
+        assert body["vendor"].get("owner_aadhar_verified_at")
+        login_new = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": body["admin_email"], "password": body["default_password"], "portal": "store"},
+        )
+        assert login_new.status_code == 200
+        tok = login_new.json()["access_token"]
+        me = requests.get(
+            f"{BASE_URL}/api/vendor/me",
+            headers={"Authorization": f"Bearer {tok}"},
+            timeout=15,
+        )
+        assert me.status_code == 200
+        assert "owner_aadhar" not in me.json()
+
     def test_me_master(self, master_s):
         r = master_s.get(f"{BASE_URL}/api/auth/me")
         assert r.status_code == 200
@@ -302,6 +338,31 @@ class TestAuth:
             r = master_s.get(f"{BASE_URL}{path}")
             assert r.status_code == 403, f"{path} expected 403 got {r.status_code}"
 
+    def test_onboarding_kyc_upload_master_only(self, master_token, vendor_s, s):
+        import base64
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        up = requests.post(
+            f"{BASE_URL}/api/master/uploads/onboarding",
+            files={"file": ("x.png", png, "image/png")},
+            headers={"Authorization": f"Bearer {master_token}"},
+            timeout=30,
+        )
+        assert up.status_code == 200, up.text
+        fid = up.json()["id"]
+        assert "master/onboarding-uploads" in (up.json().get("url") or "")
+        pub = s.get(f"{BASE_URL}/api/uploads/{fid}")
+        assert pub.status_code == 404
+        ok = requests.get(
+            f"{BASE_URL}/api/master/onboarding-uploads/{fid}",
+            headers={"Authorization": f"Bearer {master_token}"},
+            timeout=15,
+        )
+        assert ok.status_code == 200
+        assert ok.headers.get("content-type", "").startswith("image/")
+        denied = vendor_s.get(f"{BASE_URL}/api/master/onboarding-uploads/{fid}")
+        assert denied.status_code == 403
 
 # ---------- master admin ----------
 class TestMaster:

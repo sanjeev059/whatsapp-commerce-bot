@@ -83,6 +83,46 @@ def make_token(user: Dict[str, Any]) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
+def _validate_aadhaar_verhoeff(digits: str) -> bool:
+    """Verhoeff checksum for 12-digit Aadhaar-style numbers (format check only; not UIDAI e-KYC)."""
+    if len(digits) != 12 or not digits.isdigit():
+        return False
+    multiplication_table = (
+        (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+        (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
+        (2, 3, 4, 0, 1, 7, 8, 9, 5, 6),
+        (3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
+        (4, 0, 1, 2, 3, 9, 5, 6, 7, 8),
+        (5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
+        (6, 5, 9, 8, 7, 1, 0, 4, 3, 2),
+        (7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
+        (8, 7, 6, 5, 9, 3, 2, 1, 0, 4),
+        (9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+    )
+    permutation_table = (
+        (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+        (1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
+        (5, 8, 0, 3, 7, 9, 6, 1, 4, 2),
+        (8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
+        (9, 4, 5, 7, 1, 3, 0, 6, 8, 2),
+        (4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
+        (2, 7, 9, 3, 8, 0, 6, 4, 1, 5),
+        (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
+    )
+    c = 0
+    for i, ch in enumerate(reversed(digits)):
+        c = multiplication_table[c][permutation_table[i % 8][int(ch)]]
+    return c == 0
+
+
+_VENDOR_SENSITIVE_KEYS = frozenset({"owner_aadhar"})
+
+
+def _vendor_for_vendor_admin_response(v: Dict[str, Any]) -> Dict[str, Any]:
+    """Never expose owner Aadhaar to the vendor console API."""
+    return {k: val for k, val in v.items() if k not in _VENDOR_SENSITIVE_KEYS}
+
+
 def slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return s[:48] or uuid.uuid4().hex[:8]
@@ -247,8 +287,12 @@ bearer = HTTPBearer(auto_error=False)
 async def auth_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> Dict[str, Any]:
     if not creds:
         raise HTTPException(401, "Not authenticated")
+    return await _auth_user_from_token(creds.credentials)
+
+
+async def _auth_user_from_token(token: str) -> Dict[str, Any]:
     try:
-        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALG])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(401, "User not found")
@@ -257,7 +301,6 @@ async def auth_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bear
         raise HTTPException(401, "Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
-
 
 async def require_master(user=Depends(auth_user)):
     if user.get("role") != "master_admin":
@@ -308,6 +351,9 @@ class VendorCreate(BaseModel):
     upi_id: str = ""
     subscription_expires_at: Optional[str] = None
     license_info: str = ""
+    license_photo_id: Optional[str] = None
+    aadhar_photo_id: Optional[str] = None
+    owner_aadhar: Optional[str] = None  # 12-digit UID; checksum validated, not UIDAI e-KYC
     accepts_tos: bool
     tos_signature_name: Optional[str] = None  # vendor types their full legal name as e-signature
     enabled_categories: Optional[List[str]] = None  # subset of platform category ids
@@ -961,9 +1007,11 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 @api.get("/uploads/{file_id}")
 async def get_upload(file_id: str):
-    """Public: serve an uploaded image."""
+    """Serve an uploaded image. Onboarding/KYC uploads are not available here — use master route."""
     img = await db.images.find_one({"id": file_id}, {"_id": 0})
     if not img:
+        raise HTTPException(404, "Not found")
+    if img.get("onboarding"):
         raise HTTPException(404, "Not found")
     return Response(
         content=img["data"],
@@ -974,6 +1022,56 @@ async def get_upload(file_id: str):
 
 # ==================== Master Admin ====================
 master = APIRouter(prefix="/master", dependencies=[Depends(require_master)])
+
+
+async def _assert_master_onboarding_image_id(fid: Optional[str]) -> Optional[str]:
+    """Ensure upload exists and is still unassigned (master onboarding bucket)."""
+    if fid is None or not str(fid).strip():
+        return None
+    fid = str(fid).strip()
+    img = await db.images.find_one({"id": fid})
+    if not img:
+        raise HTTPException(400, "Invalid licence or Aadhaar photo upload")
+    if img.get("vendor_id") is not None:
+        raise HTTPException(400, "That photo is already linked to a vendor")
+    return fid
+
+
+@master.post("/uploads/onboarding")
+async def master_onboarding_upload(file: UploadFile = File(...)):
+    """Master: optional licence / Aadhaar scans before POST /master/vendors."""
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Image must be JPEG, PNG, WEBP, or GIF")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)")
+    if len(data) == 0:
+        raise HTTPException(400, "Empty file")
+    file_id = uuid.uuid4().hex
+    await db.images.insert_one({
+        "id": file_id,
+        "vendor_id": None,
+        "onboarding": True,
+        "content_type": file.content_type,
+        "data": data,
+        "size": len(data),
+        "filename": file.filename,
+        "created_at": now_iso(),
+    })
+    return {"id": file_id, "url": f"/api/master/onboarding-uploads/{file_id}", "size": len(data)}
+
+
+@master.get("/onboarding-uploads/{file_id}")
+async def master_get_onboarding_upload(file_id: str):
+    """Serve licence/Aadhaar images collected during vendor onboarding (master-only, no-store)."""
+    img = await db.images.find_one({"id": file_id, "onboarding": True}, {"_id": 0})
+    if not img:
+        raise HTTPException(404, "Not found")
+    return Response(
+        content=img["data"],
+        media_type=img.get("content_type", "image/jpeg"),
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @master.get("/stats")
@@ -1012,6 +1110,21 @@ async def create_vendor(payload: VendorCreate, request: Request):
     if not (payload.tos_signature_name and payload.tos_signature_name.strip()):
         raise HTTPException(400, "Vendor's typed full legal name is required as e-signature for the Terms of Service")
 
+    lic_id = await _assert_master_onboarding_image_id(payload.license_photo_id)
+    aadhar_img_id = await _assert_master_onboarding_image_id(payload.aadhar_photo_id)
+
+    owner_aadhar_clean: Optional[str] = None
+    if payload.owner_aadhar is not None and str(payload.owner_aadhar).strip():
+        owner_aadhar_clean = re.sub(r"\D", "", str(payload.owner_aadhar).strip())
+        if len(owner_aadhar_clean) != 12:
+            raise HTTPException(400, "Owner Aadhaar must be exactly 12 digits")
+        if not _validate_aadhaar_verhoeff(owner_aadhar_clean):
+            raise HTTPException(
+                400,
+                "Aadhaar number failed checksum — recheck digits. "
+                "(Checksum only; this is not UIDAI online verification.)",
+            )
+
     slug = (payload.slug or slugify(payload.name)).lower()
     if await db.vendors.find_one({"slug": slug}):
         raise HTTPException(400, f"Slug '{slug}' already taken")
@@ -1041,7 +1154,18 @@ async def create_vendor(payload: VendorCreate, request: Request):
         "next_order_seq": 0,
         "created_at": now_iso(),
     }
+    if lic_id:
+        vendor["license_photo_id"] = lic_id
+    if aadhar_img_id:
+        vendor["aadhar_photo_id"] = aadhar_img_id
+    if owner_aadhar_clean:
+        vendor["owner_aadhar"] = owner_aadhar_clean
+        vendor["owner_aadhar_verified_at"] = now_iso()
     await db.vendors.insert_one(dict(vendor))
+
+    for fid in (lic_id, aadhar_img_id):
+        if fid:
+            await db.images.update_one({"id": fid}, {"$set": {"vendor_id": vendor_id}})
 
     # Create vendor admin user — username = slug, default password = slug + "123"
     default_pw = f"{slug}123"
@@ -1341,7 +1465,7 @@ vendor_r = APIRouter(prefix="/vendor", dependencies=[Depends(require_vendor)])
 
 @vendor_r.get("/me")
 async def vendor_me(user=Depends(require_vendor)):
-    return user["vendor"]
+    return _vendor_for_vendor_admin_response(user["vendor"])
 
 
 @vendor_r.get("/billing")
@@ -1415,7 +1539,9 @@ async def update_store(payload: VendorUpdate, user=Depends(require_vendor)):
     res = await db.vendors.find_one_and_update(
         {"id": user["vendor_id"]}, {"$set": update}, return_document=True, projection={"_id": 0}
     )
-    return res
+    if not res:
+        raise HTTPException(404, "Vendor not found")
+    return _vendor_for_vendor_admin_response(res)
 
 
 @vendor_r.get("/stats")

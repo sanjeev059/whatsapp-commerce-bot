@@ -149,6 +149,11 @@ export default function MasterVendors() {
                 <div className="text-[11px] text-[var(--text-faint)] truncate">
                   {v.admin_email || "—"}
                 </div>
+                {v.owner_aadhar ? (
+                  <div className="text-[10px] font-mono text-[var(--text-faint)] truncate">
+                    Aadhaar ········{String(v.owner_aadhar).slice(-4)}
+                  </div>
+                ) : null}
               </div>
               <div className="hidden md:block text-xs font-mono text-[var(--text-muted)] truncate">
                 /store/{v.slug}
@@ -255,11 +260,21 @@ function CreateVendorModal({ onClose, onCreated }) {
     address: "",
     upi_id: "",
     license_info: "",
+    license_photo_id: "",
+    aadhar_photo_id: "",
+    owner_aadhar: "",
     enabled_categories: ["liquor", "cigarettes", "snacks", "food"],
     tos_signature_name: "",
     accepts_tos: false,
   });
   const [submitting, setSubmitting] = useState(false);
+
+  const uploadOnboardingPhoto = async (file, field) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const { data } = await api.post("/master/uploads/onboarding", fd);
+    setForm((f) => ({ ...f, [field]: data.id }));
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -277,7 +292,22 @@ function CreateVendorModal({ onClose, onCreated }) {
     }
     setSubmitting(true);
     try {
-      const { data } = await api.post("/master/vendors", form);
+      const ownerDigits = form.owner_aadhar.replace(/\D/g, "");
+      const { data } = await api.post("/master/vendors", {
+        name: form.name,
+        slug: form.slug.trim() || undefined,
+        owner_name: form.owner_name,
+        owner_phone: form.owner_phone,
+        address: form.address,
+        upi_id: form.upi_id,
+        license_info: form.license_info,
+        enabled_categories: form.enabled_categories,
+        tos_signature_name: form.tos_signature_name,
+        accepts_tos: form.accepts_tos,
+        ...(form.license_photo_id ? { license_photo_id: form.license_photo_id } : {}),
+        ...(form.aadhar_photo_id ? { aadhar_photo_id: form.aadhar_photo_id } : {}),
+        ...(ownerDigits.length ? { owner_aadhar: ownerDigits } : {}),
+      });
       toast.success(`Vendor ${data.vendor.name} onboarded`);
       onCreated(data);
     } catch (e) {
@@ -395,6 +425,67 @@ function CreateVendorModal({ onClose, onCreated }) {
             />
           </Field>
 
+          <Field label="Licence photo (optional)">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="text-xs text-[var(--text-muted)] w-full file:mr-2 file:rounded-lg file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5"
+              data-testid="new-vendor-license-photo"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                try {
+                  await uploadOnboardingPhoto(f, "license_photo_id");
+                  toast.success("Licence photo uploaded");
+                } catch (err) {
+                  toast.error(apiErrorMessage(err));
+                }
+                e.target.value = "";
+              }}
+            />
+            {form.license_photo_id ? (
+              <p className="text-[10px] text-[var(--accent)] mt-1">Ready to attach on create</p>
+            ) : null}
+          </Field>
+
+          <Field label="Owner Aadhaar card photo (optional)">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="text-xs text-[var(--text-muted)] w-full file:mr-2 file:rounded-lg file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5"
+              data-testid="new-vendor-aadhar-photo"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                try {
+                  await uploadOnboardingPhoto(f, "aadhar_photo_id");
+                  toast.success("Aadhaar photo uploaded");
+                } catch (err) {
+                  toast.error(apiErrorMessage(err));
+                }
+                e.target.value = "";
+              }}
+            />
+            {form.aadhar_photo_id ? (
+              <p className="text-[10px] text-[var(--accent)] mt-1">Ready to attach on create</p>
+            ) : null}
+          </Field>
+
+          <Field label="Owner Aadhaar number (optional)">
+            <input
+              className="input font-mono tracking-wider"
+              placeholder="12-digit Aadhaar"
+              inputMode="numeric"
+              autoComplete="off"
+              value={form.owner_aadhar}
+              onChange={(e) => setForm({ ...form, owner_aadhar: e.target.value.replace(/[^\d\s]/g, "") })}
+              data-testid="new-vendor-owner-aadhar"
+            />
+            <p className="text-[10px] text-[var(--text-faint)] mt-1 leading-snug">
+              Digit checksum only — not UIDAI online verification. Store securely; not shown to the vendor app.
+            </p>
+          </Field>
+
           <Field label="Categories this vendor sells *">
             <div className="grid grid-cols-2 gap-2 pt-1">
               {[
@@ -481,6 +572,13 @@ function CreateVendorModal({ onClose, onCreated }) {
                 Vendor's registered city. Either party may terminate with 7 days' written notice;
                 outstanding subscription fees are non-refundable.
               </li>
+              <li>
+                Where the Vendor provides them, the Platform may retain the owner's Aadhaar number
+                (digit-checksum validated only, not UIDAI e-KYC), licence references, and uploaded
+                identity or licence images solely for audit, dispute resolution, and cooperation with
+                lawful regulatory requests. The Vendor confirms this data corresponds to the person
+                signing below.
+              </li>
             </ol>
           </div>
 
@@ -505,7 +603,7 @@ function CreateVendorModal({ onClose, onCreated }) {
             />
             <span>
               By checking this box and signing above, the Vendor confirms they have read,
-              understood, and accept all 8 clauses of the Terms of Service. Acceptance is recorded
+              understood, and accept all 9 clauses of the Terms of Service. Acceptance is recorded
               with timestamp and IP for audit.
             </span>
           </label>
@@ -549,6 +647,20 @@ function CredentialsModal({ payload, onClose }) {
 
   const storefrontUrl = `${window.location.origin}/store/${payload.vendor.slug}`;
   const qrUrl = `${process.env.REACT_APP_BACKEND_URL}/api/storefront/${payload.vendor.slug}/qr.png?size=400`;
+
+  const openKycImage = async (fileId, label) => {
+    try {
+      const { data } = await api.get(`/master/onboarding-uploads/${fileId}`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(data);
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      if (!w) toast.error("Pop-up blocked — allow pop-ups for this site.");
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch {
+      toast.error(`Could not open ${label}`);
+    }
+  };
 
   const printQr = () => {
     const w = window.open("", "_blank", "width=600,height=800");
@@ -607,6 +719,46 @@ function CredentialsModal({ payload, onClose }) {
         <CredRow label="Email" value={payload.admin_email} onCopy={() => copy(payload.admin_email, "Email")} />
         <CredRow label="Password" value={payload.default_password} mono onCopy={() => copy(payload.default_password, "Password")} />
         <CredRow label="Storefront" value={storefrontUrl} onCopy={() => copy(storefrontUrl, "URL")} />
+
+        {(payload.vendor.owner_aadhar ||
+          payload.vendor.license_photo_id ||
+          payload.vendor.aadhar_photo_id) && (
+          <div
+            className="rounded-xl p-3 mb-4 text-xs space-y-2 border"
+            style={{ background: "var(--surface-2)", borderColor: "var(--border-soft)" }}
+            data-testid="cred-identity-audit"
+          >
+            <div className="font-semibold text-[var(--text-muted)]">Onboarding audit (operator only)</div>
+            {payload.vendor.owner_aadhar && (
+              <div>
+                <span className="text-[var(--text-faint)]">Owner Aadhaar on file</span>
+                <div className="font-mono text-sm mt-0.5 tracking-wide">{payload.vendor.owner_aadhar}</div>
+              </div>
+            )}
+            {(payload.vendor.license_photo_id || payload.vendor.aadhar_photo_id) ? (
+              <div className="flex flex-wrap gap-3 pt-1">
+                {payload.vendor.license_photo_id && (
+                  <button
+                    type="button"
+                    className="text-[var(--accent)] text-left"
+                    onClick={() => openKycImage(payload.vendor.license_photo_id, "licence photo")}
+                  >
+                    Open licence photo
+                  </button>
+                )}
+                {payload.vendor.aadhar_photo_id && (
+                  <button
+                    type="button"
+                    className="text-[var(--accent)] text-left"
+                    onClick={() => openKycImage(payload.vendor.aadhar_photo_id, "Aadhaar photo")}
+                  >
+                    Open Aadhaar photo
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
 
         <button onClick={onClose} className="btn-primary w-full mt-4 text-sm" data-testid="cred-modal-done">
           Done

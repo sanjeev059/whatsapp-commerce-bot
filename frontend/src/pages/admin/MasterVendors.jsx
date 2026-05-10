@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { apiErrorMessage } from "@/lib/apiError";
+import MasterStorePasswordResetModal from "@/components/MasterStorePasswordResetModal";
 import { toast } from "sonner";
 import {
   Plus,
@@ -172,6 +173,14 @@ export default function MasterVendors() {
                     Aadhaar ········{String(v.owner_aadhar).slice(-4)}
                   </div>
                 ) : null}
+                <button
+                  type="button"
+                  className="md:hidden mt-2 text-left text-xs text-[var(--accent)] font-semibold"
+                  onClick={() => resetStorePassword(v)}
+                  data-testid={`vendor-reset-pw-mobile-${v.slug}`}
+                >
+                  Reset store password →
+                </button>
               </div>
               <div className="hidden md:block text-xs font-mono text-[var(--text-muted)] truncate">
                 /store/{v.slug}
@@ -273,7 +282,7 @@ export default function MasterVendors() {
       )}
 
       {created && <CredentialsModal payload={created} onClose={() => setCreated(null)} />}
-      {passwordReset && <ResetPasswordModal data={passwordReset} onClose={() => setPasswordReset(null)} />}
+      {passwordReset && <MasterStorePasswordResetModal data={passwordReset} onClose={() => setPasswordReset(null)} />}
     </div>
   );
 }
@@ -788,50 +797,6 @@ function CredentialsModal({ payload, onClose }) {
         )}
 
         <button onClick={onClose} className="btn-primary w-full mt-4 text-sm" data-testid="cred-modal-done">
-          Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ResetPasswordModal({ data, onClose }) {
-  const copy = async (text, label) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${label} copied`);
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-      data-testid="reset-password-modal"
-    >
-      <div
-        className="surface w-full max-w-md rounded-2xl p-6 fade-up max-h-[90vh] overflow-y-auto thin-scroll"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <KeyRound className="w-5 h-5 text-[var(--warm)]" />
-          <div className="text-base font-bold">New store login</div>
-        </div>
-        <p className="text-xs text-[var(--text-muted)] mb-4">
-          Copy and share with <strong className="text-white">{data.vendor_name}</strong> securely. The old password no
-          longer works. They sign in at the store login page; they may be asked to choose a new password.
-        </p>
-        <CredRow label="Login URL" value={`${window.location.origin}/admin/login`} onCopy={() => copy(`${window.location.origin}/admin/login`, "URL")} />
-        <CredRow label="Email" value={data.admin_email} onCopy={() => copy(data.admin_email, "Email")} />
-        <CredRow label="New password" value={data.new_password} mono onCopy={() => copy(data.new_password, "Password")} />
-        <button
-          onClick={onClose}
-          className="btn-primary w-full mt-4 text-sm"
-          data-testid="reset-password-modal-done"
-        >
           Done
         </button>
       </div>

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/apiClient";
+import { apiErrorMessage } from "@/lib/apiError";
 import { formatINR } from "@/lib/format";
+import { toast } from "sonner";
+import MasterStorePasswordResetModal from "@/components/MasterStorePasswordResetModal";
 import {
   Users,
   ShoppingBag,
@@ -10,6 +13,7 @@ import {
   TrendingUp,
   ArrowRight,
   Crown,
+  KeyRound,
 } from "lucide-react";
 import { StatusPill } from "@/pages/admin/orderStatus";
 
@@ -17,6 +21,9 @@ export default function MasterDashboard() {
   const [stats, setStats] = useState(null);
   const [orders, setOrders] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [pwVendorId, setPwVendorId] = useState("");
+  const [passwordReset, setPasswordReset] = useState(null);
+  const [pwWorking, setPwWorking] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -36,6 +43,27 @@ export default function MasterDashboard() {
     return () => clearInterval(id);
   }, []);
 
+  const generateStorePassword = async () => {
+    if (!pwVendorId) return;
+    if (
+      !window.confirm(
+        "Generate a new password for this store? Their current password will stop working immediately."
+      )
+    )
+      return;
+    setPwWorking(true);
+    try {
+      const { data } = await api.post(`/master/vendors/${pwVendorId}/reset-admin-password`);
+      setPasswordReset(data);
+      setPwVendorId("");
+      toast.success("New password ready — copy from the dialog.");
+    } catch (e) {
+      toast.error(apiErrorMessage(e, "Could not reset password"));
+    } finally {
+      setPwWorking(false);
+    }
+  };
+
   return (
     <div className="px-4 md:px-8 pt-6 md:pt-8" data-testid="master-dashboard">
       <div className="mb-6 flex items-center gap-2">
@@ -46,6 +74,45 @@ export default function MasterDashboard() {
       <p className="text-sm text-[var(--text-muted)] mt-1 mb-6">
         All vendors, all orders, full GMV across the platform.
       </p>
+
+      <div
+        className="surface p-4 md:p-5 mb-6 border border-[var(--border-soft)]"
+        data-testid="master-reset-pw-card"
+      >
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] font-semibold mb-2">
+          <KeyRound className="w-4 h-4 text-[var(--warm)]" />
+          Store forgot their password?
+        </div>
+        <p className="text-xs text-[var(--text-muted)] mb-3 leading-relaxed">
+          Pick the store, then <strong className="text-white">Generate new password</strong>. Give the email + password
+          to the vendor; they sign in at <span className="font-mono text-[var(--text-faint)]">/admin/login</span> (store
+          sign-in — not this operations login).
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+          <select
+            className="input flex-1 min-w-0"
+            value={pwVendorId}
+            onChange={(e) => setPwVendorId(e.target.value)}
+            data-testid="master-reset-pw-select"
+          >
+            <option value="">Choose store…</option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} · {v.admin_email || `/${v.slug}`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!pwVendorId || pwWorking}
+            onClick={generateStorePassword}
+            className="btn-primary !py-2.5 text-sm shrink-0 justify-center sm:w-auto"
+            data-testid="master-reset-pw-generate"
+          >
+            {pwWorking ? "Working…" : "Generate new password"}
+          </button>
+        </div>
+      </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
@@ -168,6 +235,10 @@ export default function MasterDashboard() {
           )}
         </div>
       </div>
+
+      {passwordReset && (
+        <MasterStorePasswordResetModal data={passwordReset} onClose={() => setPasswordReset(null)} />
+      )}
     </div>
   );
 }

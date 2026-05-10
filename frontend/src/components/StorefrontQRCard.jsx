@@ -2,6 +2,7 @@ import { useState } from "react";
 import { resolveUrl } from "@/lib/apiClient";
 import { Download, Printer, QrCode, Share2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { PLATFORM_NAME } from "@/config";
 
 /**
  * Vendor storefront QR card.
@@ -50,7 +51,7 @@ export default function StorefrontQRCard({ slug, vendorName }) {
         <h2>Scan to order · 30-min delivery</h2>
         <img src="${qrUrl}" alt="QR code" />
         <div class="url">${storefrontUrl}</div>
-        <div class="tag">Powered by Local Commerce</div>
+        <div class="tag">Powered by ${PLATFORM_NAME}</div>
         <script>window.onload=()=>{setTimeout(()=>window.print(),300)}</script>
       </body></html>
     `);

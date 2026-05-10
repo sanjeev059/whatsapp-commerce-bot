@@ -4,4 +4,4 @@ export const CATEGORY_RULES = {
   cigarettes: { fullPackOnly: true },
 };
 
-export const PLATFORM_NAME = "Local Commerce";
+export const PLATFORM_NAME = "GharSip";

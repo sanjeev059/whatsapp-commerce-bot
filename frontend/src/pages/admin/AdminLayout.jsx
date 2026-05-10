@@ -25,6 +25,7 @@ import {
   Tag,
 } from "lucide-react";
 import VendorBillingPaywall from "@/components/VendorBillingPaywall";
+import { PLATFORM_NAME } from "@/config";
 
 export default function AdminLayout() {
   const { user, logout } = useAdminAuth();
@@ -151,6 +152,8 @@ export default function AdminLayout() {
     typeof billing.subscription?.days_remaining === "number" &&
     billing.subscription.days_remaining <= 7;
 
+  const path = location.pathname;
+
   if (user === null) {
     return (
       <div
@@ -161,10 +164,14 @@ export default function AdminLayout() {
       </div>
     );
   }
-  if (user === false) return <Navigate to="/admin/login" replace />;
+  if (user === false) {
+    if (path.startsWith("/admin/master")) {
+      return <Navigate to="/admin/ops/login" replace />;
+    }
+    return <Navigate to="/admin/login" replace />;
+  }
 
   // Auto-redirect mismatched routes
-  const path = location.pathname;
   if (isMaster && !path.startsWith("/admin/master")) {
     return <Navigate to="/admin/master" replace />;
   }
@@ -173,8 +180,9 @@ export default function AdminLayout() {
   }
 
   const onLogout = () => {
+    const dest = user?.role === "master_admin" ? "/admin/ops/login" : "/admin/login";
     logout();
-    navigate("/admin/login", { replace: true });
+    navigate(dest, { replace: true });
   };
 
   const linkBase = "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-colors";
@@ -226,9 +234,11 @@ export default function AdminLayout() {
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-              {isMaster ? "Master" : "Vendor"}
+              {isMaster ? "Operations" : "Store"}
             </div>
-            <div className="text-sm font-semibold">Local Commerce</div>
+            <div className="text-sm font-semibold">
+              {isMaster ? PLATFORM_NAME : user?.vendor?.name || PLATFORM_NAME}
+            </div>
           </div>
         </div>
 
@@ -291,7 +301,7 @@ export default function AdminLayout() {
           ) : (
             <Sparkles className="w-4 h-4 text-[var(--accent)]" />
           )}
-          <span className="font-semibold">{isMaster ? "Master" : "Vendor"}</span>
+          <span className="font-semibold">{isMaster ? "Ops" : user?.vendor?.name || "Store"}</span>
         </div>
         <button
           onClick={onLogout}

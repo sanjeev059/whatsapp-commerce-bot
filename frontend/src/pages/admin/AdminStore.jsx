@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import ImageUpload from "@/components/ImageUpload";
 import StorefrontQRCard from "@/components/StorefrontQRCard";
 import { useAdminAuth } from "@/context/AdminAuthContext";
+import { PLATFORM_NAME } from "@/config";
 import {
   Power,
   Save,
@@ -305,8 +306,8 @@ export default function AdminStore() {
             <div className="mt-1">{vendor.license_info || "Not on file"}</div>
             <div className="mt-2 text-[var(--text-faint)]">
               You are the legal merchant of record for all orders placed on{" "}
-              <span className="text-white">/store/{vendor.slug}</span>. Local Commerce is the
-              platform; compliance with FSSAI, excise, and age-gating laws is your responsibility.
+              <span className="text-white">/store/{vendor.slug}</span>. {PLATFORM_NAME} runs this app;
+              compliance with applicable licences and age rules is your responsibility.
             </div>
           </div>
         </div>

@@ -61,8 +61,10 @@ export function AdminAuthProvider({ children }) {
     return () => api.interceptors.response.eject(id);
   }, []);
 
-  const login = async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password });
+  const login = async (email, password, portal) => {
+    const body = { email, password };
+    if (portal) body.portal = portal;
+    const { data } = await api.post("/auth/login", body);
     setToken(data.access_token);
     api.defaults.headers.common.Authorization = `Bearer ${data.access_token}`;
     // Pull canonical user (includes password_must_change etc.)

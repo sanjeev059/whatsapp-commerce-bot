@@ -39,7 +39,8 @@ function App() {
           <BrowserRouter>
             <Routes>
               {/* Auth */}
-              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin/login" element={<AdminLogin portal="store" />} />
+              <Route path="/admin/ops/login" element={<AdminLogin portal="ops" />} />
 
               {/* Admin (auto-routes to master or vendor by role) */}
               <Route path="/admin" element={<AdminLayout />}>

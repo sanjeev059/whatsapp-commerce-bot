@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-/* Service Worker for Local Commerce — handles Web Push + minimal offline shell. */
+/* Service Worker for GharSip — handles Web Push + minimal offline shell. */
 
 const CACHE_NAME = "lc-shell-v1";
 const SHELL_ASSETS = ["/", "/manifest.json", "/favicon.ico"];

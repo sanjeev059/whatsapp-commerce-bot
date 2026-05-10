@@ -1,7 +1,7 @@
 {
-  "short_name": "Local Commerce",
-  "name": "Local Commerce — Vendor Console",
-  "description": "Hyperlocal commerce SaaS — manage your store, orders, and products from anywhere.",
+  "short_name": "GharSip",
+  "name": "GharSip — Store console",
+  "description": "Manage your store, orders, and products.",
   "icons": [
     {
       "src": "favicon.ico",

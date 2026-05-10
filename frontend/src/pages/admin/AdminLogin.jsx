@@ -3,9 +3,11 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { apiErrorMessage } from "@/lib/apiError";
 import { LogIn, Sparkles, Eye, EyeOff } from "lucide-react";
+import { PLATFORM_NAME } from "@/config";
 
-export default function AdminLogin() {
+export default function AdminLogin({ portal = "store" }) {
   const { user, login } = useAdminAuth();
+  const isOps = portal === "ops";
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,7 +23,7 @@ export default function AdminLogin() {
     setError("");
     setSubmitting(true);
     try {
-      const u = await login(email.trim(), password);
+      const u = await login(email.trim(), password, portal);
       navigate(u.role === "master_admin" ? "/admin/master" : "/admin", { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err, "Login failed"));
@@ -44,7 +46,9 @@ export default function AdminLogin() {
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center"
             style={{
-              background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+              background: isOps
+                ? "linear-gradient(135deg, #ffb547, #ff8a47)"
+                : "linear-gradient(135deg, var(--accent), var(--accent-2))",
               boxShadow: "0 10px 30px var(--accent-glow)",
             }}
           >
@@ -52,9 +56,9 @@ export default function AdminLogin() {
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-              Admin Console
+              {isOps ? "Operations" : "Store admin"}
             </div>
-            <div className="text-base font-semibold">Local Commerce</div>
+            <div className="text-base font-semibold">{PLATFORM_NAME}</div>
           </div>
         </div>
 
@@ -62,7 +66,9 @@ export default function AdminLogin() {
           Sign in
         </h1>
         <p className="text-sm text-[var(--text-muted)] mt-2 mb-7">
-          Master admins manage vendors. Vendor admins manage their store.
+          {isOps
+            ? "Onboard stores, billing, and subscriptions."
+            : "Manage your menu, orders, and store settings."}
         </p>
 
         <form onSubmit={submit} className="space-y-3">
@@ -74,7 +80,7 @@ export default function AdminLogin() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="input mt-1"
-              placeholder="you@vendor.local"
+              placeholder="you@yourbusiness.com"
               required
               data-testid="login-email"
             />
@@ -128,12 +134,6 @@ export default function AdminLogin() {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
-
-        <div className="mt-6 text-[11px] text-[var(--text-faint)] text-center leading-relaxed">
-          Demo master · <span className="text-[var(--text-muted)]">master@localcommerce.in / master123</span>
-          <br />
-          Demo vendor · <span className="text-[var(--text-muted)]">sharma-wines@vendor.local / sharma-wines123</span>
-        </div>
       </div>
     </div>
   );

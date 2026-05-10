@@ -19,7 +19,7 @@ import re
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 import bcrypt
 import jwt
@@ -290,6 +290,8 @@ ORDER_STATES = [
 class LoginIn(BaseModel):
     email: str
     password: str
+    # store = merchant sign-in (master accounts rejected); ops = operations sign-in (vendors rejected)
+    portal: Optional[Literal["store", "ops"]] = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -448,7 +450,7 @@ class PlatformBillingUpdate(BaseModel):
 # ==================== public storefront ====================
 @api.get("/")
 async def root():
-    return {"app": os.environ.get("PLATFORM_NAME", "Local Commerce"), "version": "3.0"}
+    return {"app": os.environ.get("PLATFORM_NAME", "GharSip"), "version": "3.0"}
 
 
 @api.get("/storefront/{slug}")
@@ -914,6 +916,11 @@ async def login(payload: LoginIn):
     user = await db.users.find_one({"email": email})
     if not user or not verify_pw(payload.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+    portal = payload.portal
+    if portal == "store" and user.get("role") == "master_admin":
+        raise HTTPException(401, "Invalid email or password")
+    if portal == "ops" and user.get("role") == "vendor_admin":
+        raise HTTPException(401, "Invalid email or password")
     token = make_token(user)
     safe = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
     return {"access_token": token, "token_type": "bearer", "user": safe}
@@ -921,6 +928,15 @@ async def login(payload: LoginIn):
 
 @api.get("/auth/me")
 async def me(user=Depends(auth_user)):
+    # Minimal vendor embed for white-label admin UI (no extra round-trip from the browser).
+    if user.get("role") == "vendor_admin" and user.get("vendor_id"):
+        v = await db.vendors.find_one(
+            {"id": user["vendor_id"]}, {"_id": 0, "name": 1, "slug": 1}
+        )
+        if v:
+            out = dict(user)
+            out["vendor"] = {"name": v.get("name", ""), "slug": v.get("slug", "")}
+            return out
     return user
 
 
@@ -1779,7 +1795,7 @@ async def push_test(user=Depends(require_vendor)):
         "type": "test",
         "short_id": "TEST",
         "total": 0,
-        "customer": "Local Commerce",
+        "customer": os.environ.get("PLATFORM_NAME", "GharSip"),
     })
     return {"sent": sent}
 

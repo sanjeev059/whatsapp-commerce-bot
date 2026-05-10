@@ -60,8 +60,8 @@ export default function VendorBillingPaywall({ billing, vendorName }) {
         </div>
         <h1 className="text-2xl font-extrabold mt-1">Pay to reactivate your store</h1>
         <p className="text-sm text-[var(--text-muted)] mt-2 leading-relaxed">
-          Your storefront is offline. Pay the monthly platform fee below, then send the
-          screenshot on WhatsApp — we'll switch your store back on within 30 minutes.
+          Your storefront is offline. Pay the monthly fee below, then send the
+          payment screenshot on WhatsApp — your store will be switched back on shortly.
         </p>
 
         <div className="mt-5 surface-2 !rounded-xl p-4 text-center">
@@ -81,7 +81,7 @@ export default function VendorBillingPaywall({ billing, vendorName }) {
             <div className="surface-2 !rounded-xl p-3 flex justify-center">
               <img
                 src={qrSrc}
-                alt="Platform UPI QR"
+                alt="UPI QR"
                 className="w-56 h-56 rounded-lg"
                 data-testid="paywall-qr"
               />
@@ -107,7 +107,7 @@ export default function VendorBillingPaywall({ billing, vendorName }) {
               border: "1px solid rgba(255,181,71,0.30)",
             }}
           >
-            Platform billing is not yet configured. Contact the platform team to get the UPI details.
+            Billing details aren&rsquo;t set up yet. Contact support for payment instructions.
           </div>
         )}
 

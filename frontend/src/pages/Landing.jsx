@@ -37,7 +37,7 @@ export default function Landing() {
             <Store className="w-4 h-4" /> Just a Store →
           </a>
           <button onClick={() => navigate("/admin/login")} className="btn-ghost justify-center" data-testid="login-cta">
-            Vendor / Admin login
+            Store sign in
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

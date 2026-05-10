@@ -246,6 +246,36 @@ class TestAuth:
                    json={"email": MASTER_EMAIL, "password": "wrong"})
         assert r.status_code == 401
 
+    def test_store_portal_rejects_master(self, s):
+        r = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": MASTER_EMAIL, "password": MASTER_PASSWORD, "portal": "store"},
+        )
+        assert r.status_code == 401
+
+    def test_ops_portal_rejects_vendor(self, s):
+        r = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": VENDOR_EMAIL, "password": VENDOR_PASSWORD, "portal": "ops"},
+        )
+        assert r.status_code == 401
+
+    def test_store_portal_accepts_vendor(self, s):
+        r = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": VENDOR_EMAIL, "password": VENDOR_PASSWORD, "portal": "store"},
+        )
+        assert r.status_code == 200
+        assert r.json()["user"]["role"] == "vendor_admin"
+
+    def test_ops_portal_accepts_master(self, s):
+        r = s.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": MASTER_EMAIL, "password": MASTER_PASSWORD, "portal": "ops"},
+        )
+        assert r.status_code == 200
+        assert r.json()["user"]["role"] == "master_admin"
+
     def test_me_master(self, master_s):
         r = master_s.get(f"{BASE_URL}/api/auth/me")
         assert r.status_code == 200

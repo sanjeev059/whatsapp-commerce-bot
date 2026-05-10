@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/apiClient";
-import { CheckCircle2, Clock, MapPin, Truck, Package, RefreshCw } from "lucide-react";
+import { CheckCircle2, Clock, MapPin, Truck, Package, RefreshCw, Phone } from "lucide-react";
 import { formatINR } from "@/lib/format";
+import OrderRouteMap from "@/components/OrderRouteMap";
 
 const STATUS_FLOW = [
   { id: "payment_verification_pending", label: "Payment under review", icon: Clock },
@@ -97,6 +98,49 @@ export default function TrackOrder() {
           </div>
         )}
       </div>
+
+      {!isRejected && (
+        <>
+          <div className="px-5 mt-4 mx-5 space-y-3">
+            <div className="surface p-4">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">
+                Store
+              </div>
+              <div className="font-semibold">{order.vendor?.name}</div>
+              {order.vendor?.address ? (
+                <p className="text-xs text-[var(--text-muted)] mt-1">{order.vendor.address}</p>
+              ) : null}
+            </div>
+            <OrderRouteMap
+              storeLat={order.vendor?.lat}
+              storeLng={order.vendor?.lng}
+              dropLat={order.customer_lat}
+              dropLng={order.customer_lng}
+              height={200}
+            />
+          </div>
+          {(order.status === "out_for_delivery" || order.status === "delivered") &&
+            (order.rider_name || order.rider_phone) && (
+              <div className="px-5 mt-4 surface p-4 mx-5" data-testid="track-delivery-person">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-3">
+                  Your delivery
+                </div>
+                {order.rider_name ? <div className="font-semibold">{order.rider_name}</div> : null}
+                {order.rider_phone ? (
+                  <a
+                    href={`tel:${String(order.rider_phone).replace(/\s/g, "")}`}
+                    className="inline-flex items-center gap-2 mt-2 text-[var(--accent)] text-sm font-semibold"
+                  >
+                    <Phone className="w-4 h-4" /> {order.rider_phone}
+                  </a>
+                ) : null}
+                <p className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
+                  Shown for this order only. Call your delivery contact to coordinate handoff.
+                </p>
+              </div>
+            )}
+        </>
+      )}
 
       <div className="px-5 mt-4 surface p-4 mx-5">
         <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">Order summary</div>

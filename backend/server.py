@@ -480,6 +480,16 @@ class OrderCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
+    rider_name: Optional[str] = None
+    rider_phone: Optional[str] = None
+
+
+class OrderRiderPatch(BaseModel):
+    """Update delivery person visible to customer while order is out_for_delivery."""
+    rider_name: Optional[str] = None
+    rider_phone: Optional[str] = None
+
+
 class BulkProductsIn(BaseModel):
     products: List[ProductCreate]
     replace_existing: bool = False  # if true, soft-delete current products first
@@ -854,8 +864,13 @@ async def track_order(token: str):
         "delivery_address": o["delivery_address"],
         "customer_name": o["customer_name"],
         "payment_mode": o["payment_mode"],
+        "customer_lat": o.get("customer_lat"),
+        "customer_lng": o.get("customer_lng"),
         "vendor": _public_vendor(v) if v else None,
         "created_at": o["created_at"],
+        "rider_name": o.get("rider_name") or None,
+        "rider_phone": o.get("rider_phone") or None,
+        "rider_dispatched_at": o.get("rider_dispatched_at"),
     }
 
 
@@ -879,6 +894,11 @@ async def delivery_get(token: str):
         "delivery_address": o["delivery_address"],
         "customer_lat": o.get("customer_lat"),
         "customer_lng": o.get("customer_lng"),
+        "store_lat": v.get("lat") if v else None,
+        "store_lng": v.get("lng") if v else None,
+        "store_address": (v.get("address") if v else "") or "",
+        "rider_name": o.get("rider_name") or None,
+        "rider_phone": o.get("rider_phone") or None,
         "notes": o.get("notes", ""),
         "vendor_name": v["name"] if v else "",
         "delivered_at": o.get("delivered_at"),
@@ -1693,9 +1713,19 @@ async def vendor_update_order(oid: str, payload: OrderStatusUpdate, user=Depends
         raise HTTPException(404, "Order not found")
     prev_status = o.get("status")
     history = o.get("status_history", []) + [{"status": payload.status, "at": now_iso()}]
+    extra: Dict[str, Any] = {}
+    if payload.status == "out_for_delivery":
+        pre_name = (payload.rider_name or "").strip()
+        pre_phone = (payload.rider_phone or "").strip()
+        if pre_name:
+            extra["rider_name"] = pre_name
+        if pre_phone:
+            extra["rider_phone"] = pre_phone
+        if prev_status != "out_for_delivery":
+            extra["rider_dispatched_at"] = now_iso()
     res = await db.orders.find_one_and_update(
         {"id": oid},
-        {"$set": {"status": payload.status, "status_history": history, "updated_at": now_iso()}},
+        {"$set": {"status": payload.status, "status_history": history, "updated_at": now_iso(), **extra}},
         return_document=True,
         projection={"_id": 0},
     )
@@ -1704,6 +1734,29 @@ async def vendor_update_order(oid: str, payload: OrderStatusUpdate, user=Depends
             await notify_order_status(res, user["vendor"], payload.status)
         except Exception as e:
             logger.warning("notify_order_status (AiSensy) failed: %s", e)
+    return res
+
+
+@vendor_r.patch("/orders/{oid}/rider")
+async def vendor_patch_order_rider(oid: str, payload: OrderRiderPatch, user=Depends(require_vendor)):
+    o = await db.orders.find_one({"id": oid, "vendor_id": user["vendor_id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    if o.get("status") != "out_for_delivery":
+        raise HTTPException(400, "Rider details can only be updated while order is out for delivery")
+    patch: Dict[str, Any] = {}
+    if payload.rider_name is not None:
+        patch["rider_name"] = payload.rider_name.strip()
+    if payload.rider_phone is not None:
+        patch["rider_phone"] = payload.rider_phone.strip()
+    if not patch:
+        raise HTTPException(400, "Send rider_name and/or rider_phone")
+    res = await db.orders.find_one_and_update(
+        {"id": oid},
+        {"$set": {**patch, "updated_at": now_iso()}},
+        return_document=True,
+        projection={"_id": 0},
+    )
     return res
 
 

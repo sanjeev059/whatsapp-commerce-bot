@@ -59,9 +59,18 @@ export default function AdminOrders() {
     return () => clearInterval(id);
   }, [load]);
 
-  const updateStatus = async (oid, newStatus) => {
+  const updateStatus = async (oid, newStatus, riderOpts = null) => {
     try {
-      const { data } = await api.patch(`/vendor/orders/${oid}`, { status: newStatus });
+      const body = { status: newStatus };
+      if (
+        newStatus === "out_for_delivery" &&
+        riderOpts &&
+        (riderOpts.name?.trim() || riderOpts.phone?.trim())
+      ) {
+        if (riderOpts.name?.trim()) body.rider_name = riderOpts.name.trim();
+        if (riderOpts.phone?.trim()) body.rider_phone = riderOpts.phone.trim();
+      }
+      const { data } = await api.patch(`/vendor/orders/${oid}`, body);
       setOrders((prev) => prev.map((o) => (o.id === oid ? data : o)));
       if (selected?.id === oid) setSelected(data);
       toast.success(`Order ${data.short_id} → ${STATUS_META[newStatus].label}`);
@@ -154,14 +163,26 @@ export default function AdminOrders() {
         <OrderDetailModal
           order={selected}
           onClose={() => setSelected(null)}
-          onStatus={(s) => updateStatus(selected.id, s)}
+          onStatus={(s, riderOpts) => updateStatus(selected.id, s, riderOpts)}
+          onOrderUpdated={(data) => {
+            setOrders((prev) => prev.map((o) => (o.id === data.id ? data : o)));
+            setSelected(data);
+          }}
         />
       )}
     </div>
   );
 }
 
-function OrderDetailModal({ order, onClose, onStatus }) {
+function OrderDetailModal({ order, onClose, onStatus, onOrderUpdated }) {
+  const [riderName, setRiderName] = useState("");
+  const [riderPhone, setRiderPhone] = useState("");
+
+  useEffect(() => {
+    setRiderName(order.rider_name || "");
+    setRiderPhone(order.rider_phone || "");
+  }, [order.id, order.rider_name, order.rider_phone]);
+
   const copyOrder = async () => {
     const lines = [
       `Order ${order.short_id}`,
@@ -201,11 +222,16 @@ function OrderDetailModal({ order, onClose, onStatus }) {
       order.customer_lat && order.customer_lng
         ? `\n📍 Maps: https://maps.google.com/?q=${order.customer_lat},${order.customer_lng}\n`
         : "\n";
+    const riderLine =
+      order.rider_name || order.rider_phone
+        ? `\n🛵 ${[order.rider_name, order.rider_phone].filter(Boolean).join(" · ")}\n`
+        : "\n";
     const msg =
       `*New delivery — Order #${order.short_id}*\n` +
       `${order.customer_name} · ${order.customer_phone}\n` +
       `${order.delivery_address}` +
       mapsLine +
+      riderLine +
       `\n${totalLine}\n\n` +
       `Open this link to confirm delivery (photo required):\n${deliveryUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
@@ -218,6 +244,20 @@ function OrderDetailModal({ order, onClose, onStatus }) {
       toast.success("Delivery link copied");
     } catch {
       toast.error("Could not copy");
+    }
+  };
+
+  const saveRiderOnly = async () => {
+    if (order.status !== "out_for_delivery") return;
+    try {
+      const { data } = await api.patch(`/vendor/orders/${order.id}/rider`, {
+        rider_name: riderName,
+        rider_phone: riderPhone,
+      });
+      onOrderUpdated(data);
+      toast.success("Customer track page updated with delivery details");
+    } catch (e) {
+      toast.error(apiErrorMessage(e, "Could not save"));
     }
   };
 
@@ -346,6 +386,39 @@ function OrderDetailModal({ order, onClose, onStatus }) {
             )}
           </div>
 
+          {(order.status === "accepted" || order.status === "out_for_delivery") && (
+            <div className="space-y-2" data-testid="modal-rider-section">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold">
+                Delivery person (customer sees this during delivery)
+              </div>
+              <input
+                className="input"
+                placeholder="Name (e.g. Rajesh)"
+                value={riderName}
+                onChange={(e) => setRiderName(e.target.value)}
+                data-testid="modal-rider-name"
+              />
+              <input
+                className="input"
+                placeholder="Phone"
+                inputMode="tel"
+                value={riderPhone}
+                onChange={(e) => setRiderPhone(e.target.value)}
+                data-testid="modal-rider-phone"
+              />
+              {order.status === "out_for_delivery" && (
+                <button
+                  type="button"
+                  onClick={saveRiderOnly}
+                  className="btn-ghost w-full justify-center text-xs !py-2"
+                  data-testid="modal-rider-save"
+                >
+                  Save — update customer track page
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Items */}
           <div>
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">
@@ -385,8 +458,8 @@ function OrderDetailModal({ order, onClose, onStatus }) {
                 <div className="flex items-start gap-2">
                   <Truck className="w-4 h-4 mt-0.5 text-[var(--accent)]" />
                   <div className="text-xs text-[var(--text-muted)] leading-relaxed">
-                    Share this one-time link on WhatsApp. Delivery boy opens it,
-                    snaps a proof photo, and the order auto-marks delivered.
+                    Share this one-time link with your delivery partner. Add their name and phone above so
+                    the customer can see who is coming on the track link.
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3 flex-wrap">
@@ -422,7 +495,12 @@ function OrderDetailModal({ order, onClose, onStatus }) {
                 {next.map((s) => (
                   <button
                     key={s}
-                    onClick={() => onStatus(s)}
+                    onClick={() =>
+                      onStatus(
+                        s,
+                        s === "out_for_delivery" ? { name: riderName, phone: riderPhone } : null
+                      )
+                    }
                     className="px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] text-white transition"
                     style={{ background: STATUS_META[s].bg }}
                     data-testid={`modal-status-${s}`}

@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   RotateCcw,
 } from "lucide-react";
+import OrderRouteMap from "@/components/OrderRouteMap";
 
 const PAYMENT_LABELS = { upi: "Paid via UPI", cod: "Collect cash" };
 
@@ -192,6 +193,35 @@ export default function DeliveryHandoff() {
       </div>
 
       <div className="px-4 mt-4 space-y-3">
+        {((order.store_lat != null && order.store_lng != null) ||
+          (order.customer_lat != null && order.customer_lng != null)) && (
+          <div className="surface p-3" data-testid="delivery-route-map-wrap">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">
+              Store → customer
+            </div>
+            <OrderRouteMap
+              storeLat={order.store_lat}
+              storeLng={order.store_lng}
+              dropLat={order.customer_lat}
+              dropLng={order.customer_lng}
+              height={176}
+            />
+          </div>
+        )}
+        {(order.rider_name || order.rider_phone) && (
+          <div className="surface p-3 text-sm" data-testid="delivery-rider-info">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+              Rider (customer sees this)
+            </div>
+            {order.rider_name && <div className="font-semibold mt-1">{order.rider_name}</div>}
+            {order.rider_phone && (
+              <a href={`tel:${String(order.rider_phone).replace(/\s/g, "")}`} className="text-[var(--accent)] text-xs mt-1 inline-block">
+                {order.rider_phone}
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Customer */}
         <div className="surface p-4">
           <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] font-semibold mb-2">

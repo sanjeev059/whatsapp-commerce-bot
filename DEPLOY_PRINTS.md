@@ -38,3 +38,19 @@ The Vercel project is still using the **old Create React App** build.
 | **`./` (repo root)** | Repo root `vercel.json` (`cd frontend && …`) |
 
 Prefer **Root Directory = `frontend`** for the smoothest Next.js deploy.
+
+---
+
+## Next build OK, then error: `No Output Directory named "build" found`
+
+The **Next build finished** (`next build`), but deployment still expects CRA’s **`build/`** folder. That comes from **Vercel project settings overrides**, not from this repo.
+
+**In Vercel:**
+
+1. **Project → Settings → Build & Deployment**
+2. **Output Directory** — **delete everything** (leave the field **empty**). Do **not** use `build`.
+3. **Framework Preset** — **Next.js**
+4. If you see **Production Overrides**, turn off overrides for **Output Directory** (`build`) and **Build Command**.
+5. **Save**, then **Deployments → ⋯ → Redeploy** → enable **Clear build cache**
+
+Next.js writes **`.next/`** — Vercel publishes it automatically; you normally **do not** set Output Directory for Next.js.

@@ -11,7 +11,7 @@ export function Navbar() {
     <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/96 backdrop-blur-md shadow-sm">
       {/* Announcement bar */}
       <div className="bg-brand py-1.5 text-center text-[11px] font-semibold text-white tracking-wide">
-        Free shipping on orders above ₹499 · Pan India delivery in 4–5 days
+        🎉 Free shipping on orders above ₹499 · Pan India delivery in 4–5 days
       </div>
 
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6">
@@ -26,33 +26,23 @@ export function Navbar() {
           </div>
         </Link>
 
-        {/* Nav links */}
+        {/* Nav */}
         <nav className="flex items-center gap-1 sm:gap-2">
-          <Link
-            href="/customize"
-            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
-          >
-            Design
+          <Link href="/shop" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 hover:text-brand transition-colors sm:block">
+            Shop
           </Link>
-          <Link
-            href="/gallery"
-            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
-          >
+          <Link href="/gallery" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block">
             Gallery
           </Link>
-          <Link
-            href="/track"
-            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
-          >
+          <Link href="/customize" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block">
+            Design
+          </Link>
+          <Link href="/track" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block">
             Track
           </Link>
 
-          {/* CTA button */}
-          <Link
-            href="/customize"
-            className="hidden rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-dark transition-colors sm:inline-flex"
-          >
-            Start Designing
+          <Link href="/shop" className="hidden rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-dark transition-colors sm:inline-flex">
+            Shop Now
           </Link>
 
           {/* Cart */}

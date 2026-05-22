@@ -4,20 +4,20 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { useCart } from "@/lib/CartContext";
+import { persistOrderDraft } from "@/lib/orders";
+import { createOrderOnBackend, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { computeCartDelivery } from "@/lib/pricing";
+import type { StoredOrder } from "@/lib/types";
 
 const CHECKOUT_KEY = "prints_checkout_form";
-const PENDING_KEY  = "gharsip_cf_pending";
+const PENDING_KEY  = "gharsip_rzp_pending";
 
-// Cashfree SDK v3 global type
 declare global {
   interface Window {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    Cashfree?: (opts: { mode: "sandbox" | "production" }) => any;
+    Razorpay?: new (opts: Record<string, unknown>) => { open(): void };
   }
 }
-
-const CF_ENV = (process.env.NEXT_PUBLIC_CASHFREE_ENV ?? "sandbox") as "sandbox" | "production";
 
 type Checkout = {
   name: string; phone: string; email: string;
@@ -25,15 +25,15 @@ type Checkout = {
   coupon?: string; subtotal: number; delivery: number; total: number;
 };
 
-function generateOrderId(): string {
-  return `GH${Date.now()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+function generateOrderId() {
+  return `GH${Date.now()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
 }
 
 export default function PaymentPage() {
-  const { lines } = useCart();
-  const [sdkReady, setSdkReady]   = useState(false);
-  const [busy, setBusy]           = useState(false);
-  const [error, setError]         = useState<string | null>(null);
+  const { lines, clearCart } = useCart();
+  const [sdkReady, setSdkReady] = useState(false);
+  const [busy, setBusy]         = useState(false);
+  const [error, setError]       = useState<string | null>(null);
 
   const checkoutRaw = typeof window !== "undefined" ? sessionStorage.getItem(CHECKOUT_KEY) : null;
   const checkout: Checkout | null = checkoutRaw ? JSON.parse(checkoutRaw) : null;
@@ -42,37 +42,54 @@ export default function PaymentPage() {
   const delivery = checkout?.delivery ?? computeCartDelivery(subtotal);
   const total    = checkout?.total    ?? subtotal + delivery;
 
-  // Load Cashfree JS SDK
+  // Load Razorpay checkout.js
   useEffect(() => {
-    if (document.getElementById("cf-sdk")) { setSdkReady(true); return; }
-    const s = document.createElement("script");
-    s.id  = "cf-sdk";
-    s.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
-    s.onload = () => setSdkReady(true);
-    s.onerror = () => setError("Could not load payment SDK. Please refresh.");
+    if (document.getElementById("rzp-sdk")) { setSdkReady(true); return; }
+    const s   = document.createElement("script");
+    s.id      = "rzp-sdk";
+    s.src     = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload  = () => setSdkReady(true);
+    s.onerror = () => setError("Could not load Razorpay SDK. Check your internet connection.");
     document.head.appendChild(s);
   }, []);
 
   const handlePay = async () => {
     setError(null);
     if (!checkout || lines.length === 0) {
-      setError("Cart is empty or delivery details missing — go back to checkout.");
+      setError("Cart or delivery details missing — go back to checkout.");
       return;
     }
-    if (!window.Cashfree) {
-      setError("Payment SDK not loaded yet — please wait a moment and try again.");
+    if (!window.Razorpay) {
+      setError("Razorpay SDK not loaded yet — please wait and try again.");
       return;
     }
 
     setBusy(true);
     try {
-      const orderId   = generateOrderId();
-      const returnUrl = `${window.location.origin}/order-confirmed?order=${orderId}&cf=1`;
+      const gharsipOrderId = generateOrderId();
 
-      // Save everything we need after the redirect
-      sessionStorage.setItem(PENDING_KEY, JSON.stringify({
-        orderId,
-        lines: lines.map((l) => ({ ...l })),
+      // 1 — Create a Razorpay order on our server
+      const res = await fetch("/api/razorpay/create-order", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount:  checkout.total,
+          receipt: gharsipOrderId,
+          notes:   { name: checkout.name, phone: checkout.phone },
+        }),
+      });
+
+      const rzpOrder = await res.json() as { orderId?: string; error?: string };
+      if (!res.ok || !rzpOrder.orderId) {
+        setError(rzpOrder.error ?? "Could not create payment order. Please try again.");
+        setBusy(false);
+        return;
+      }
+
+      // 2 — Save pending data to sessionStorage (survives Razorpay redirect)
+      const pending: Omit<StoredOrder, "id" | "createdAt"> & { gharsipOrderId: string } = {
+        gharsipOrderId,
+        lines:         lines.map((l) => ({ ...l })),
         customer: {
           name:    checkout.name,
           phone:   checkout.phone,
@@ -83,45 +100,115 @@ export default function PaymentPage() {
           state:   checkout.state,
           pincode: checkout.pincode,
         },
-        coupon:   checkout.coupon,
-        subtotal: checkout.subtotal,
-        delivery: checkout.delivery,
-        total:    checkout.total,
-      }));
+        coupon:        checkout.coupon,
+        subtotal:      checkout.subtotal,
+        delivery:      checkout.delivery,
+        total:         checkout.total,
+        paymentId:     "",
+        paymentStatus: "pending",
+        timeline:      [],
+      };
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
 
-      // Create Cashfree order (server-side call keeps secret key hidden)
-      const res = await fetch("/api/cashfree/create-order", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId,
-          amount:         checkout.total,
-          customerName:   checkout.name,
-          customerEmail:  checkout.email,
-          customerPhone:  checkout.phone,
-          returnUrl,
-        }),
+      // 3 — Open Razorpay checkout modal
+      const rzp = new window.Razorpay({
+        key:         process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? "",
+        amount:      Math.round(checkout.total * 100),
+        currency:    "INR",
+        name:        "Gharsip Custom Prints",
+        description: `Order ${gharsipOrderId}`,
+        image:       `${window.location.origin}/favicon.ico`,
+        order_id:    rzpOrder.orderId,
+        prefill: {
+          name:    checkout.name,
+          email:   checkout.email || `${checkout.phone}@gharsip.in`,
+          contact: checkout.phone.replace(/\D/g, "").slice(-10),
+        },
+        theme: { color: "#2E7D32" },
+
+        // 4 — Payment success handler
+        handler: async (response: {
+          razorpay_payment_id: string;
+          razorpay_order_id:   string;
+          razorpay_signature:  string;
+        }) => {
+          setBusy(true);
+          setError(null);
+          try {
+            // Verify signature server-side
+            const verifyRes = await fetch("/api/razorpay/verify", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id:   response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature:  response.razorpay_signature,
+              }),
+            });
+
+            const verifyData = await verifyRes.json() as { valid?: boolean; error?: string };
+            if (!verifyRes.ok || !verifyData.valid) {
+              setError(verifyData.error ?? "Payment signature invalid. Contact support.");
+              setBusy(false);
+              return;
+            }
+
+            // Finalise order
+            const pendingRaw = sessionStorage.getItem(PENDING_KEY);
+            if (!pendingRaw) throw new Error("Pending order data lost.");
+
+            const p = JSON.parse(pendingRaw) as typeof pending;
+            const finalPayload: Omit<StoredOrder, "id" | "createdAt"> = {
+              lines:         p.lines,
+              customer:      p.customer,
+              coupon:        p.coupon,
+              subtotal:      p.subtotal,
+              delivery:      p.delivery,
+              total:         p.total,
+              paymentId:     response.razorpay_payment_id,
+              paymentStatus: "paid",
+              timeline:      [],
+            };
+
+            let finalId: string;
+            if (isGharsipApiEnabled()) {
+              const { id } = await createOrderOnBackend(finalPayload);
+              sessionStorage.setItem(`prints_confirm_phone:${id}`, p.customer.phone.trim());
+              finalId = id;
+            } else {
+              const saved = persistOrderDraft(finalPayload);
+              finalId = saved.id;
+            }
+
+            clearCart();
+            sessionStorage.removeItem(PENDING_KEY);
+            sessionStorage.removeItem(CHECKOUT_KEY);
+
+            // Auto-submit to Qikink (fire-and-forget; admin can retry from panel)
+            fetch("/api/qikink/create-order", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gharsipOrderId: finalId,
+                lines:          p.lines,
+                customer:       p.customer,
+              }),
+            }).catch(() => { /* handled in admin panel */ });
+
+            window.location.href = `/order-confirmed?order=${encodeURIComponent(finalId)}`;
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Order finalisation failed. Contact support.");
+            setBusy(false);
+          }
+        },
+
+        modal: {
+          ondismiss: () => setBusy(false),
+        },
       });
 
-      const data = await res.json() as { payment_session_id?: string; error?: string };
-      if (!res.ok || !data.payment_session_id) {
-        setError(data.error ?? "Could not create payment session. Try again.");
-        setBusy(false);
-        return;
-      }
-
-      // Open Cashfree checkout modal / redirect
-      const cashfree = window.Cashfree({ mode: CF_ENV });
-      cashfree.checkout({
-        paymentSessionId: data.payment_session_id,
-        returnUrl,
-      });
-
-      // If SDK opens a modal (not a redirect), the user stays on this page.
-      // After they close it, we rely on the returnUrl redirect.
-      // Just stop the spinner after a moment.
-      setTimeout(() => setBusy(false), 3000);
-
+      rzp.open();
+      // don't clear busy here — cleared in handler / ondismiss
     } catch (e) {
       setError(e instanceof Error ? e.message : "Payment failed. Please try again.");
       setBusy(false);
@@ -130,42 +217,35 @@ export default function PaymentPage() {
 
   return (
     <>
-      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:grid lg:grid-cols-12 lg:gap-10">
+      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:grid lg:grid-cols-12 lg:gap-10">
 
-        {/* Left — payment panel */}
+        {/* Left */}
         <div className="lg:col-span-7">
           <Link href="/checkout" className="text-xs font-bold text-brand hover:underline">← Edit address</Link>
-          <h1 className="mt-4 text-2xl font-extrabold text-zinc-900">Secure Checkout</h1>
+          <h1 className="mt-4 text-2xl font-extrabold text-zinc-900">Secure Payment</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Powered by <span className="font-bold text-[#1e3a5f]">Cashfree Payments</span> — UPI · Cards · Netbanking · Wallets
+            Powered by <span className="font-bold text-[#0057b7]">Razorpay</span> — UPI · Cards · Netbanking · Wallets
           </p>
 
           {error && (
-            <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
+            <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           )}
 
-          {/* Cashfree branding block */}
+          {/* Main pay block */}
           <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Amount to pay</p>
                 <p className="mt-1 text-4xl font-extrabold text-brand">₹{total}</p>
               </div>
-              <div className="flex flex-col items-end gap-1">
-                <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700 ring-1 ring-green-200">
-                  🔒 256-bit SSL
-                </span>
-                <span className="text-[10px] text-zinc-400">Secured by Cashfree</span>
-              </div>
+              <span className="rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700 ring-1 ring-green-200">
+                🔒 Secure checkout
+              </span>
             </div>
 
-            <div className="mt-6 flex flex-wrap gap-2">
-              {["UPI / GPay / PhonePe", "Debit Card", "Credit Card", "Netbanking", "Wallets"].map((m) => (
-                <span key={m} className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-600">
-                  {m}
-                </span>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {["UPI / GPay / PhonePe", "Debit Card", "Credit Card", "Netbanking", "Wallets", "EMI"].map((m) => (
+                <span key={m} className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-600">{m}</span>
               ))}
             </div>
 
@@ -173,7 +253,7 @@ export default function PaymentPage() {
               type="button"
               disabled={busy || !sdkReady || lines.length === 0}
               onClick={() => void handlePay()}
-              className="mt-6 w-full rounded-2xl bg-brand py-4 text-base font-extrabold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-6 w-full rounded-2xl bg-brand py-4 text-base font-extrabold text-white shadow-lg hover:bg-brand-dark disabled:opacity-60 transition"
             >
               {busy ? (
                 <span className="flex items-center justify-center gap-2">
@@ -181,34 +261,22 @@ export default function PaymentPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                   </svg>
-                  Opening payment…
+                  Processing…
                 </span>
-              ) : !sdkReady ? (
-                "Loading payment SDK…"
-              ) : (
-                `Pay ₹${total} securely`
-              )}
+              ) : !sdkReady ? "Loading…" : `Pay ₹${total} with Razorpay`}
             </button>
 
             <p className="mt-3 text-center text-xs text-zinc-400">
-              You&apos;ll be taken to Cashfree&apos;s secure payment screen. Your card details are never stored by Gharsip.
+              Your card/bank details go directly to Razorpay — Gharsip never sees them.
             </p>
           </div>
 
-          {/* Trust row */}
+          {/* Trust badges */}
           <div className="mt-6 flex flex-wrap justify-center gap-6 text-xs text-zinc-400">
-            {[
-              { icon: "🔐", text: "End-to-end encrypted" },
-              { icon: "✅", text: "RBI authorised gateway" },
-              { icon: "↩️", text: "Easy refund if order fails" },
-            ].map((t) => (
-              <span key={t.text} className="flex items-center gap-1.5">{t.icon} {t.text}</span>
-            ))}
+            <span>🔐 256-bit SSL</span>
+            <span>✅ RBI licensed gateway</span>
+            <span>↩️ Easy refund if needed</span>
           </div>
-
-          <Link href="/checkout" className="mt-6 inline-block text-sm font-bold text-brand hover:underline">
-            ← Change delivery address
-          </Link>
         </div>
 
         {/* Right — order summary */}

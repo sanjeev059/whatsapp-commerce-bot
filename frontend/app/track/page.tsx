@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { loadOrder } from "@/lib/orders";
+import { fetchOrderFromBackend, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import type { StoredOrder } from "@/lib/types";
 
 function TrackInner() {
@@ -15,20 +16,44 @@ function TrackInner() {
   const [msg, setMsg] = useState<string | null>(null);
   const [found, setFound] = useState<StoredOrder | null>(null);
 
-  const lookup = (e: FormEvent) => {
+  const lookup = async (e: FormEvent) => {
     e.preventDefault();
     const idNorm = orderId.replace(/^#/, "").trim();
+    const p10 = phone.replace(/\D/g, "").slice(-10);
+
+    if (idNorm.length < 5 || p10.length !== 10) {
+      setMsg("Enter order number and a valid phone.");
+      setFound(null);
+      return;
+    }
+
+    if (isGharsipApiEnabled()) {
+      try {
+        const o = await fetchOrderFromBackend(idNorm, phone);
+        if (!o) {
+          setFound(null);
+          setMsg("Order not found — check the ID and phone used at checkout.");
+          return;
+        }
+        setMsg(null);
+        setFound(o);
+      } catch (err) {
+        setFound(null);
+        setMsg(err instanceof Error ? err.message : "Lookup failed.");
+      }
+      return;
+    }
+
     const o = loadOrder(idNorm);
     if (!o) {
       setFound(null);
       setMsg(
-        "Order not found in this browser. After Firebase is connected, tracking will work from any device."
+        "Order not found in this browser. Add NEXT_PUBLIC_BACKEND_URL to pull orders from the server."
       );
       return;
     }
-    const p = phone.replace(/\D/g, "");
     const op = o.customer.phone.replace(/\D/g, "");
-    if (p.length < 10 || op.slice(-10) !== p.slice(-10)) {
+    if (p10.length < 10 || op.slice(-10) !== p10) {
       setMsg("Phone doesn’t match this order.");
       setFound(null);
       return;

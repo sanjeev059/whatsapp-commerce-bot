@@ -5,23 +5,96 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { loadOrder } from "@/lib/orders";
+import { fetchOrderFromBackend, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import type { StoredOrder } from "@/lib/types";
 
 function Inner() {
   const sp = useSearchParams();
   const id = sp.get("order") || "";
-  const [order, setOrder] = useState(() => (id ? loadOrder(id) : null));
+  const [order, setOrder] = useState<StoredOrder | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (id) setOrder(loadOrder(id));
+    if (!id) {
+      setOrder(null);
+      return;
+    }
+    let cancelled = false;
+
+    async function run() {
+      setLoadErr(null);
+      if (isGharsipApiEnabled()) {
+        const phone =
+          typeof window !== "undefined"
+            ? sessionStorage.getItem(`prints_confirm_phone:${id}`)
+            : null;
+        if (!phone) {
+          setOrder(null);
+          setLoadErr("missing_phone");
+          return;
+        }
+        try {
+          const o = await fetchOrderFromBackend(id, phone);
+          if (!cancelled) {
+            setOrder(o);
+            setLoadErr(!o ? "not_found" : null);
+          }
+        } catch (e) {
+          if (!cancelled) setLoadErr(e instanceof Error ? e.message : "Load failed");
+        }
+        return;
+      }
+      const local = loadOrder(id);
+      if (!cancelled) {
+        setOrder(local);
+        if (!local) setLoadErr("not_found");
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
-  if (!id || !order) {
+  if (!id) {
     return (
       <div className="mx-auto max-w-lg px-4 py-20 text-center">
         <p className="text-zinc-600">No order reference. Start from the customizer.</p>
         <Link href="/customize" className="mt-4 inline-block font-bold text-brand">
           Design a tee
         </Link>
+      </div>
+    );
+  }
+
+  if (!order) {
+    if (loadErr === "missing_phone") {
+      return (
+        <div className="mx-auto max-w-lg px-4 py-20 text-center">
+          <p className="text-zinc-700">
+            We couldn’t load order details outside the checkout session. Use Track order with your order number and
+            phone instead.
+          </p>
+          <Link href={`/track?order=${encodeURIComponent(id)}`} className="mt-6 inline-block font-bold text-brand">
+            Track order
+          </Link>
+        </div>
+      );
+    }
+    if (loadErr === "not_found") {
+      return (
+        <div className="mx-auto max-w-lg px-4 py-20 text-center">
+          <p className="text-zinc-600">Order not found. Check the order number.</p>
+          <Link href="/" className="mt-6 inline-block font-bold text-brand">
+            Home
+          </Link>
+        </div>
+      );
+    }
+    return (
+      <div className="mx-auto max-w-lg px-4 py-20 text-center">
+        <p className="text-zinc-600">{loadErr ?? "Loading order…"}</p>
       </div>
     );
   }

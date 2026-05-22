@@ -1,56 +1,74 @@
-# Deploy Gharsip Custom Prints (Vercel)
+# Deploy Gharsip Custom Prints
 
-The storefront lives in **`frontend/`** (Next.js). The old liquor React app was removed.
+Monorepo: **Next.js storefront** in `frontend/`, **FastAPI + MongoDB** in `backend/` (orders API only — no legacy liquor stack).
 
-## Vercel
+## 1. MongoDB Atlas
 
-1. Import **`sanjeev059/whatsapp-commerce-bot`** (or connect Git).
-2. **Root Directory:** `frontend`  
-3. Framework: **Next.js** (auto-detected — `frontend/vercel.json` pins `npm ci` + **`next build`**).
-4. **Node:** Project → Settings → set **Node.js Version** to **20.x** (matches `engines` in `frontend/package.json`).
-5. **Environment variables** (optional):
-   - `NEXT_PUBLIC_ADMIN_PIN` — PIN for `/admin` (defaults to demo `gharsip2026` if unset).
+1. Create a free **M0** cluster (recommended region **Mumbai** / `ap-south-1`).
+2. Database user + password; allow network **0.0.0.0/0** (needed for Render) or Render’s egress IPs later.
+3. Copy the **`mongodb+srv://…`** URI.
 
-6. **Custom domain (`gharsip.com`)**: Project → Settings → Domains → add apex + `www`, follow DNS instructions.
+## 2. Backend on Render (~5 min)
 
-No `REACT_APP_BACKEND_URL` is required for this site. Orders are demo **localStorage** until you wire Firestore / your own API.
+1. Push this repo to GitHub and **New → Blueprint** (or manual Web Service pointing at **`backend/`**).
+2. If using **Blueprint**, open `render.yaml` from the repo root.
+3. Set environment variables:
 
-## Backend folder (`backend/`)
+   | Variable | Required | Notes |
+   |----------|---------|-------|
+   | `MONGO_URL` | ✅ | Atlas connection string |
+   | `DB_NAME` | optional | Defaults to **`gharsip_store`** |
+   | `ADMIN_API_TOKEN` | ✅ | Long random secret; same value copied to Vercel **server-side** env |
+   | `CORS_ORIGINS` | strongly recommended prod | Example: `https://you.vercel.app,https://gharsip.com` |
+   | `ORDERS_COLLECTION` | optional | Default **`gharsip_orders`**. If you previously used Prints-only **`prints_orders`**, set this to **`prints_orders`** until you migrate data. |
+   | `META_COLLECTION` | optional | Default **`gharsip_meta`** (order id counter lives here). |
 
-The **`backend/`** FastAPI service (MongoDB, multi-vendor liquor APIs) remains in the repo for reference or future reuse. **The Prints site does not call it.** You can suspend or delete the Render service when you no longer need it.
+4. **Health check path:** `/api/` (returns JSON `app` + `version`).
+
+**Backward compatibility:** if you still have **`PRINTS_ADMIN_TOKEN`** in Render from an older deploy, the API also accepts it until you finish switching to **`ADMIN_API_TOKEN`**.
+
+## 3. Frontend on Vercel
+
+1. Import the repo; **Root Directory:** `frontend`
+2. Framework: **Next.js**
+3. Node **20.x** (matches `engines` in `frontend/package.json`)
+4. Environment variables:
+
+   | Variable | Where | Purpose |
+   |----------|--------|---------|
+   | `NEXT_PUBLIC_BACKEND_URL` | Vercel (public) | Render base URL, **no** trailing slash, e.g. `https://gharsip-backend.onrender.com` |
+   | `ADMIN_API_TOKEN` | Vercel **server only** | Must match Render. Used by **`/api/admin/backend-orders`** so the browser never sees the Bearer token. |
+   | `NEXT_PUBLIC_ADMIN_PIN` | optional | PIN for `/admin` UI (default `gharsip2026` if unset) |
+   | `PRINTS_OPS_PIN` | optional server | If set, overrides which PIN the Next proxy accepts for listing/patching orders |
+
+If **`NEXT_PUBLIC_BACKEND_URL`** is unset, the site runs in **localStorage demo** mode (no server orders).
+
+## 4. API reference (backend)
+
+All routes are under **`/api`**.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/` | — | Health / metadata |
+| `POST` | `/api/orders` | — | Create order (rate limited; server recomputes totals) |
+| `GET` | `/api/orders/{id}?phone=…` | — | Customer lookup (last 10 digits of phone must match) |
+| `GET` | `/api/admin/orders` | `Authorization: Bearer <ADMIN_API_TOKEN>` | List orders |
+| `PATCH` | `/api/admin/orders/{id}` | Bearer | Update `tracking`, `qikinkId`, optional `timeline` |
+
+The Next.js app proxies admin list/patch through **`/api/admin/backend-orders`** (PIN + server Bearer).
+
+## 5. Custom domain
+
+Vercel → Domains → add apex + `www`; point DNS as instructed. Add the **https** origin to **`CORS_ORIGINS`** on Render.
 
 ---
 
-## Build fails: `react-scripts: command not found`
+## Troubleshooting (Vercel)
 
-The Vercel project is still using the **old Create React App** build.
+### Build still expects Create React App / `build` folder
 
-1. **Settings → General → Root Directory:** set **`frontend`** and **Save**.
-2. **Settings → General → Framework Preset:** **Next.js**.
-3. **Settings → Build & Deployment:** if there is **Production Overrides** (yellow banner), disable overrides for **Build Command** (`react-scripts build`) and **Output Directory** (`build`). Save.
-4. **Deployments** → `⋯` on the latest deployment → **Redeploy**, and turn on **Clear build cache**.
+See older notes in git history; with **Root Directory = `frontend`** and **Next.js** preset, overrides for `react-scripts` / `build` must be cleared, then redeploy with **Clear build cache**.
 
-**Which `vercel.json` applies**
+### CORS blocked from browser to Render
 
-| Root Directory | Config used |
-|----------------|--------------|
-| **`frontend`** | `frontend/vercel.json` only |
-| **`./` (repo root)** | Repo root `vercel.json` (`cd frontend && …`) |
-
-Prefer **Root Directory = `frontend`** for the smoothest Next.js deploy.
-
----
-
-## Next build OK, then error: `No Output Directory named "build" found`
-
-The **Next build finished** (`next build`), but deployment still expects CRA’s **`build/`** folder. That comes from **Vercel project settings overrides**, not from this repo.
-
-**In Vercel:**
-
-1. **Project → Settings → Build & Deployment**
-2. **Output Directory** — **delete everything** (leave the field **empty**). Do **not** use `build`.
-3. **Framework Preset** — **Next.js**
-4. If you see **Production Overrides**, turn off overrides for **Output Directory** (`build`) and **Build Command**.
-5. **Save**, then **Deployments → ⋯ → Redeploy** → enable **Clear build cache**
-
-Next.js writes **`.next/`** — Vercel publishes it automatically; you normally **do not** set Output Directory for Next.js.
+Set **`CORS_ORIGINS`** on Render to include your exact Vercel preview and production origins (scheme + host, no path).

@@ -1,8 +1,9 @@
+# Gharsip Custom Prints backend (FastAPI) — Deploy on Render (Blueprint).
 services:
   - type: web
-    name: local-commerce-backend
+    name: gharsip-backend
     runtime: python
-    region: singapore   # closest to India for low latency
+    region: singapore
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn server:app --host 0.0.0.0 --port $PORT"
@@ -12,35 +13,15 @@ services:
       - key: PYTHON_VERSION
         value: "3.11"
       - key: MONGO_URL
-        sync: false        # set in Render dashboard (your Atlas connection string)
+        sync: false # MongoDB Atlas connection string (required)
       - key: DB_NAME
-        value: "local_commerce"
-      - key: JWT_SECRET
-        generateValue: true   # Render auto-generates a strong value
-      - key: MASTER_ADMIN_EMAIL
-        sync: false        # set in Render dashboard
-      - key: MASTER_ADMIN_PASSWORD
-        sync: false        # set in Render dashboard
-      - key: VAPID_PUBLIC_KEY
-        sync: false        # set in Render dashboard
-      - key: VAPID_PRIVATE_KEY_PEM
-        sync: false        # set in Render dashboard
-      - key: VAPID_CONTACT_EMAIL
-        sync: false        # set in Render dashboard
+        value: gharsip_store # database name inside Atlas
+      - key: ADMIN_API_TOKEN
+        sync: false # long random Bearer secret — duplicate on Vercel (server-side only)
       - key: CORS_ORIGINS
-        sync: false        # set to your Vercel URL once frontend is up
-      - key: PUBLIC_BASE_URL
-        sync: false        # set to your final domain once linked
-      # WhatsApp (AiSensy API Campaigns) — https://aisensy.com/tutorials/api-reference-docs
-      - key: AISENSY_API_KEY
+        sync: false # comma list: https://your-app.vercel.app,https://your-domain.com
+      # Optional overrides (defaults: gharsip_orders, gharsip_meta)
+      - key: ORDERS_COLLECTION
+        sync: false # e.g. prints_orders if you migrate from the old Prints-only collection name
+      - key: META_COLLECTION
         sync: false
-      - key: AISENSY_API_URL
-        sync: false        # optional; default https://backend.aisensy.com/campaign/t1/api/v2
-      - key: AISENSY_CAMPAIGN_CUSTOMER_NEW_ORDER
-        sync: false        # template must accept 5 params (see backend/aisensy_notify.py)
-      - key: AISENSY_CAMPAIGN_VENDOR_NEW_ORDER
-        sync: false        # 6 params
-      - key: AISENSY_CAMPAIGN_ORDER_STATUS
-        sync: false        # 4 params (customer)
-      - key: AISENSY_CAMPAIGN_VENDOR_ORDER_STATUS
-        sync: false        # optional; 4 params (store owner ping on each status change)

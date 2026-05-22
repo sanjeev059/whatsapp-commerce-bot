@@ -7,8 +7,8 @@ Next.js storefront with **live tee preview**, cart, checkout, demo payment flow,
 
 1. In the **monorepo**, set Vercel **Root Directory** to **`frontend`** (this folder).
 2. Framework preset: **Next.js**.
-3. Optional env: **`NEXT_PUBLIC_ADMIN_PIN`** for `/admin` (see repo root **`DEPLOY_PRINTS.md`**).
-4. Default admin PIN is `gharsip2026` unless you set `NEXT_PUBLIC_ADMIN_PIN`.
+3. **Backend (optional):** set **`NEXT_PUBLIC_BACKEND_URL`** to your FastAPI base URL (Render). Orders live in **`gharsip_orders`** (configurable via **`ORDERS_COLLECTION`** on Render). Set server-only **`ADMIN_API_TOKEN`** on Vercel to match Render so **`/api/admin/backend-orders`** can proxy admin calls. (**`PRINTS_ADMIN_TOKEN`** is still read as a fallback.) See **`DEPLOY_PRINTS.md`**.
+4. Optional: **`NEXT_PUBLIC_ADMIN_PIN`** for `/admin` (see **`DEPLOY_PRINTS.md`**). Default PIN is `gharsip2026` if unset.
 
 ## Pricing (canonical)
 

@@ -1,4 +1,7 @@
-# Local Commerce — Hyperlocal Commerce SaaS PRD
+# Archived PRD — Local Commerce (liquor / multi-vendor SaaS)
+
+> **Status (2026):** This document describes the **removed** liquor multi-tenant product.  
+> **Current product:** **Gharsip Custom Prints** (Next.js + orders-only FastAPI). See repo root **`README.md`** and **`DEPLOY_PRINTS.md`**.
 
 ## Original Problem Statement
 Production-style hyperlocal commerce SaaS optimized for local MRP/liquor stores, cigarette shops, snack stores, and food delivery. Multi-tenant, web-only (no WhatsApp), with QR-based UPI payment + last-5-digit verification, real-time tracking, and store open/close controls.

@@ -1,31 +1,30 @@
-# Gharsip — Custom Prints storefront
+# Gharsip — Custom Prints
 
-Public site: **Gharsip Custom Prints** — “Wear Your Vibe”.  
-Next.js app in **`frontend/`** with live tee preview, cart, checkout demo flow, tracking UI, and admin PIN.
+Public site: **Gharsip Custom Prints** — “Wear Your Vibe”.
 
-## Quick start (local)
+## Stack
+
+| Part | Tech |
+|------|------|
+| **Storefront** | Next.js (`frontend/`): customizer, cart, checkout demo, Razorpay placeholder, `/admin` PIN |
+| **API** | FastAPI (`backend/`): **`/api/orders`** + **`/api/admin/orders`** (MongoDB only) |
+
+## Quick start
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+For local API: set **`backend/.env`** (`MONGO_URL`, `ADMIN_API_TOKEN`, optionally `ORDERS_COLLECTION`) and:
+
+```bash
+cd backend && pip install -r requirements.txt && uvicorn server:app --reload --port 8000
+```
+
+Point **`NEXT_PUBLIC_BACKEND_URL=http://localhost:8000`** in `frontend/.env.local`.
 
 ## Deploy
 
-See **[DEPLOY_PRINTS.md](./DEPLOY_PRINTS.md)** for Vercel (root directory **`frontend`**).
+**[DEPLOY_PRINTS.md](./DEPLOY_PRINTS.md)** — Vercel (**`frontend`**) + Render (**`backend`**) + MongoDB Atlas.
 
-## Repo layout
-
-| Path | Contents |
-|------|----------|
-| **`frontend/`** | Next.js — **production storefront** |
-| **`backend/`** | Legacy FastAPI (liquor/multi-vendor). **Not used by the Prints UI**; kept for APIs you may reuse or retire on Render |
-
-## Liquor storefront
-
-The previous Create React App (`/store/:slug`, vendor admin, etc.) has been **removed** and replaced by this Prints experience.
-
-Older deployment notes (`DEPLOY_FREE.md`, Mongo/Render/VAPID, `REACT_APP_*`) describe the legacy stack — use them only if you still run **`backend/`** separately.
+`DEPLOY_FREE.md` kept only as a pointer; the liquor multi-tenant codebase is gone.

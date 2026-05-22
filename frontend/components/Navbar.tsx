@@ -7,38 +7,72 @@ export function Navbar() {
   const { lines } = useCart();
   const count = lines.reduce((s, l) => s + l.qty, 0);
 
-  const link =
-    "text-sm font-medium text-zinc-600 hover:text-brand transition-colors";
-  const pill =
-    "inline-flex items-center justify-center min-w-[1.35rem] h-6 px-1.5 rounded-full bg-brand text-white text-xs font-bold";
-
   return (
-    <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/95 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/96 backdrop-blur-md shadow-sm">
+      {/* Announcement bar */}
+      <div className="bg-brand py-1.5 text-center text-[11px] font-semibold text-white tracking-wide">
+        Free shipping on orders above ₹499 · Pan India delivery in 4–5 days
+      </div>
+
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6">
-        <Link href="/" className="flex flex-col leading-tight">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand">
-            Gharsip
-          </span>
-          <span className="font-extrabold text-zinc-900">Custom Prints</span>
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white font-extrabold text-sm shadow-sm">
+            G
+          </div>
+          <div className="flex flex-col leading-tight">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-brand">Gharsip</span>
+            <span className="text-[13px] font-extrabold text-zinc-900">Custom Prints</span>
+          </div>
         </Link>
-        <nav className="flex items-center gap-4 sm:gap-6">
-          <Link href="/customize" className={link}>
+
+        {/* Nav links */}
+        <nav className="flex items-center gap-1 sm:gap-2">
+          <Link
+            href="/customize"
+            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
+          >
             Design
           </Link>
-          <Link href="/gallery" className={`${link} hidden sm:inline`}>
+          <Link
+            href="/gallery"
+            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
+          >
             Gallery
           </Link>
-          <Link href="/track" className={`${link} hidden sm:inline`}>
+          <Link
+            href="/track"
+            className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-brand transition-colors sm:block"
+          >
             Track
           </Link>
-          <Link href="/cart" className={`${link} flex items-center gap-2`}>
-            Cart
-            {count > 0 ? <span className={pill}>{count}</span> : null}
+
+          {/* CTA button */}
+          <Link
+            href="/customize"
+            className="hidden rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-dark transition-colors sm:inline-flex"
+          >
+            Start Designing
+          </Link>
+
+          {/* Cart */}
+          <Link
+            href="/cart"
+            className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:border-brand hover:text-brand transition-colors"
+            aria-label="Cart"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <path d="M16 10a4 4 0 01-8 0"/>
+            </svg>
+            {count > 0 ? (
+              <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-[10px] font-bold text-white">
+                {count}
+              </span>
+            ) : null}
           </Link>
         </nav>
-      </div>
-      <div className="border-t border-brand/10 bg-brand-muted py-1 text-center text-[10px] font-medium text-brand-dark sm:hidden">
-        Wear Your Vibe
       </div>
     </header>
   );

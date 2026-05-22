@@ -1,5 +1,5 @@
-# Full dependency set (AI SDKs, linters, pytest). Not used on Render.
-# Install locally for tests: pip install -r requirements-full.txt
+# Optional dev / AI / lint tooling. Not installed on Render (production uses requirements.txt).
+# Historical note: liquor SaaS pytest modules were deleted; reinstall minimal deps via requirements.txt before adding new tests.
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.5
 aiohttp-retry==2.9.1

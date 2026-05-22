@@ -1,33 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { listOrderIds, loadOrder, saveOrder } from "@/lib/orders";
+import { isGharsipApiEnabled, storedOrderFromApi } from "@/lib/gharsipApi";
 import type { StoredOrder } from "@/lib/types";
 
 export default function AdminPage() {
   const [pw, setPw] = useState("");
   const [ok, setOk] = useState(false);
+  const [adminPin, setAdminPin] = useState("");
   const [tick, setTick] = useState(0);
   const [orders, setOrders] = useState<StoredOrder[]>([]);
+  const [backendErr, setBackendErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const useBackend = isGharsipApiEnabled();
+
+  const refreshOrders = useCallback(async () => {
+    setBackendErr(null);
+    setLoading(true);
+    try {
+      if (useBackend) {
+        const res = await fetch("/api/admin/backend-orders", {
+          headers: { "x-admin-pin": adminPin },
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          setBackendErr(t || `${res.status} ${res.statusText}`);
+          setOrders([]);
+          return;
+        }
+        const j = (await res.json()) as { orders?: Record<string, unknown>[] };
+        setOrders((j.orders || []).map((x) => storedOrderFromApi(x)));
+        return;
+      }
+      setOrders(
+        listOrderIds()
+          .map((id) => loadOrder(id))
+          .filter(Boolean) as StoredOrder[]
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [useBackend, adminPin]);
 
   useEffect(() => {
     if (!ok || typeof window === "undefined") {
       setOrders([]);
       return;
     }
-    setOrders(
-      listOrderIds()
-        .map((id) => loadOrder(id))
-        .filter(Boolean) as StoredOrder[]
-    );
-  }, [ok, tick]);
+    void refreshOrders();
+  }, [ok, tick, refreshOrders]);
 
   const login = (e: React.FormEvent) => {
     e.preventDefault();
     const expected = process.env.NEXT_PUBLIC_ADMIN_PIN || "gharsip2026";
     if (pw === expected) {
+      setAdminPin(pw);
       setOk(true);
+      setPw("");
     } else {
       alert("Wrong PIN");
     }
@@ -37,11 +70,20 @@ export default function AdminPage() {
   const todayOrders = orders.filter((o) => new Date(o.createdAt).toDateString() === today);
   const revenueToday = todayOrders.filter((o) => o.paymentStatus === "paid").reduce((s, o) => s + o.total, 0);
 
+  const lockout = () => {
+    setOk(false);
+    setAdminPin("");
+    setOrders([]);
+  };
+
   if (!ok) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center px-4">
         <h1 className="text-2xl font-extrabold">Admin</h1>
-        <p className="text-sm text-zinc-500">Enter PIN (set NEXT_PUBLIC_ADMIN_PIN on Vercel).</p>
+        <p className="text-sm text-zinc-500">
+          PIN unlocks this page. Use the same PIN for server-backed orders (see{" "}
+          <code className="rounded bg-zinc-100 px-1 text-xs">PRINTS_OPS_PIN</code> optional on Vercel).
+        </p>
         <form onSubmit={login} className="mt-4 space-y-3">
           <input
             type="password"
@@ -61,18 +103,43 @@ export default function AdminPage() {
     );
   }
 
+  const subtitle = useBackend
+    ? `Orders from Mongo (${process.env.NEXT_PUBLIC_BACKEND_URL}).`
+    : "Orders from this browser only — set NEXT_PUBLIC_BACKEND_URL + backend for Mongo-backed ops.";
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold">Gharsip Custom Prints · Ops</h1>
-          <p className="text-xs text-zinc-500">
-            Orders stored in-browser for demo → wire Firestore for production dashboard.
-          </p>
+          <p className="text-xs text-zinc-500">{subtitle}</p>
+          {backendErr ? <p className="mt-2 text-xs text-red-600">{backendErr}</p> : null}
         </div>
-        <button type="button" className="text-sm font-bold text-red-600" onClick={() => setOk(false)}>
-          Lock
-        </button>
+        <div className="flex flex-wrap gap-3">
+          {useBackend ? (
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-bold"
+              disabled={loading}
+              onClick={() => {
+                void refreshOrders();
+              }}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-bold"
+              onClick={() => setTick((t) => t + 1)}
+            >
+              Refresh
+            </button>
+          )}
+          <button type="button" className="text-sm font-bold text-red-600" onClick={lockout}>
+            Lock
+          </button>
+        </div>
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -84,7 +151,7 @@ export default function AdminPage() {
           <p className="mt-2 text-3xl font-extrabold text-brand">₹{revenueToday}</p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-bold uppercase text-zinc-500">All orders (this browser)</p>
+          <p className="text-xs font-bold uppercase text-zinc-500">{useBackend ? "All orders (server)" : "All orders (this browser)"}</p>
           <p className="mt-2 text-3xl font-extrabold">{orders.length}</p>
         </div>
       </div>
@@ -103,12 +170,18 @@ export default function AdminPage() {
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={5} className="p-8 text-center text-zinc-500">
-                  No demo orders yet. Place one via “Simulate paid order”.
+                  {useBackend ? "No server orders yet — place one from checkout." : "No demo orders yet. Place one via “Simulate paid order”."}
                 </td>
               </tr>
             ) : (
               orders.map((o) => (
-                <OrderAdminRow key={o.id} o={o} onSaved={() => setTick((t) => t + 1)} />
+                <OrderAdminRow
+                  key={o.id}
+                  o={o}
+                  useBackend={useBackend}
+                  adminPin={adminPin}
+                  onSaved={() => setTick((t) => t + 1)}
+                />
               ))
             )}
           </tbody>
@@ -118,12 +191,52 @@ export default function AdminPage() {
   );
 }
 
-function OrderAdminRow({ o, onSaved }: { o: StoredOrder; onSaved: () => void }) {
+function OrderAdminRow({
+  o,
+  onSaved,
+  useBackend,
+  adminPin,
+}: {
+  o: StoredOrder;
+  onSaved: () => void;
+  useBackend: boolean;
+  adminPin: string;
+}) {
   const [open, setOpen] = useState(false);
   const [track, setTrack] = useState(o.tracking || "");
   const [qk, setQk] = useState(o.qikinkId || "");
+  const [saving, setSaving] = useState(false);
 
-  const save = () => {
+  useEffect(() => {
+    setTrack(o.tracking || "");
+    setQk(o.qikinkId || "");
+  }, [o.id, o.tracking, o.qikinkId]);
+
+  const save = async () => {
+    if (useBackend) {
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/admin/backend-orders/${encodeURIComponent(o.id)}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-pin": adminPin,
+          },
+          body: JSON.stringify({
+            tracking: track.trim() || null,
+            qikinkId: qk.trim() || null,
+          }),
+        });
+        if (!res.ok) {
+          alert(await res.text());
+          return;
+        }
+        onSaved();
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     saveOrder({ ...o, tracking: track || undefined, qikinkId: qk || undefined });
     onSaved();
   };
@@ -185,8 +298,13 @@ function OrderAdminRow({ o, onSaved }: { o: StoredOrder; onSaved: () => void }) 
                 value={qk}
                 onChange={(e) => setQk(e.target.value)}
               />
-              <button type="button" className="rounded-lg bg-brand px-4 py-2 font-bold text-white" onClick={save}>
-                Save refs
+              <button
+                type="button"
+                className="rounded-lg bg-brand px-4 py-2 font-bold text-white disabled:bg-zinc-400"
+                disabled={saving}
+                onClick={() => void save()}
+              >
+                {saving ? "Saving…" : "Save refs"}
               </button>
               <button
                 type="button"

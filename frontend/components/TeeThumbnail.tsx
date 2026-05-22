@@ -1,36 +1,33 @@
 import Image from "next/image";
 
-// Same paths as TeePreview — viewBox 460×560
 const TEE_PATH =
-  "M 155 55 " +
-  "C 130 53 108 63 100 88 " +
-  "C 76 104 44 124 20 138 " +
-  "L 20 178 " +
-  "C 20 188 28 196 42 198 " +
-  "L 78 198 " +
-  "C 92 196 102 188 104 176 " +
-  "L 105 155 " +
-  "C 103 230 96 370 82 520 " +
-  "L 378 520 " +
-  "C 364 370 357 230 355 155 " +
-  "L 356 176 " +
-  "C 358 188 368 196 382 198 " +
-  "L 418 198 " +
-  "C 432 196 440 188 440 178 " +
-  "L 440 138 " +
-  "C 416 124 384 104 360 88 " +
-  "C 352 63 330 53 305 55 " +
-  "C 296 68 284 80 272 86 " +
-  "Q 230 94 188 86 " +
-  "C 176 80 164 68 155 55 Z";
+  "M 160 62 " +
+  "C 134 60 114 68 108 86 " +
+  "C 82 100 50 116 24 128 " +
+  "L 24 170 " +
+  "C 24 180 34 188 48 190 " +
+  "L 82 188 " +
+  "C 96 186 108 178 108 166 " +
+  "C 106 290 100 410 90 506 " +
+  "L 390 506 " +
+  "C 380 410 374 290 372 166 " +
+  "C 372 178 384 186 398 188 " +
+  "L 432 190 " +
+  "C 446 188 456 180 456 170 " +
+  "L 456 128 " +
+  "C 430 116 398 100 372 86 " +
+  "C 366 68 346 60 320 62 " +
+  "C 310 74 298 84 288 90 " +
+  "Q 240 98 192 90 " +
+  "C 182 84 170 74 160 62 Z";
 
 const COLLAR_OUTER =
-  "M 155 55 C 163 40 196 34 230 34 C 264 34 297 40 305 55 " +
-  "C 296 68 284 80 272 86 Q 230 94 188 86 C 176 80 164 68 155 55 Z";
+  "M 160 62 C 168 44 204 36 240 36 C 276 36 312 44 320 62 " +
+  "C 310 74 298 84 288 90 Q 240 98 192 90 C 182 84 170 74 160 62 Z";
 
 const COLLAR_INNER =
-  "M 163 59 C 172 46 200 40 230 40 C 260 40 288 46 297 59 " +
-  "C 288 72 278 84 272 86 Q 230 94 188 86 C 182 84 172 72 163 59 Z";
+  "M 170 67 C 180 52 210 45 240 45 C 270 45 300 52 310 67 " +
+  "C 300 80 290 88 288 90 Q 240 98 192 90 C 190 88 180 80 170 67 Z";
 
 type Props = {
   colorHex: string;
@@ -45,81 +42,78 @@ export function TeeThumbnail({ colorHex, designUrl, className = "" }: Props) {
     const r = parseInt(h.slice(0, 2), 16);
     const g = parseInt(h.slice(2, 4), 16);
     const b = parseInt(h.slice(4, 6), 16);
-    return (r * 299 + g * 587 + b * 114) / 1000 > 200;
+    return (r * 299 + g * 587 + b * 114) / 1000 > 190;
   })();
 
-  const strokeColor = isLight ? "rgba(0,0,0,0.26)" : "rgba(0,0,0,0.09)";
+  const stroke = isLight ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.11)";
+  const sw = isLight ? "2" : "1.5";
 
   return (
-    <div className={`relative aspect-[460/560] w-full ${className}`}>
-      <svg viewBox="0 0 460 560" className="h-full w-full" aria-hidden>
+    <div className={`relative aspect-[480/560] w-full ${className}`}>
+      <svg viewBox="0 0 480 560" className="h-full w-full" aria-hidden>
         <defs>
-          <filter id="thShadow" x="-14%" y="-6%" width="128%" height="126%">
-            <feDropShadow dx="0" dy="8" stdDeviation="11" floodColor="#000" floodOpacity="0.26" />
+          <filter id="thShadow" x="-16%" y="-8%" width="132%" height="130%">
+            <feDropShadow dx="0" dy="10" stdDeviation="14" floodColor="#000" floodOpacity="0.28" />
           </filter>
           <linearGradient id="thSide" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%"   stopColor="#000" stopOpacity="0.18" />
-            <stop offset="10%"  stopColor="#000" stopOpacity="0.04" />
-            <stop offset="50%"  stopColor="#fff" stopOpacity="0.06" />
-            <stop offset="90%"  stopColor="#000" stopOpacity="0.04" />
-            <stop offset="100%" stopColor="#000" stopOpacity="0.18" />
+            <stop offset="0%"   stopColor="#000" stopOpacity="0.20" />
+            <stop offset="8%"   stopColor="#000" stopOpacity="0.05" />
+            <stop offset="50%"  stopColor="#fff" stopOpacity="0.05" />
+            <stop offset="92%"  stopColor="#000" stopOpacity="0.05" />
+            <stop offset="100%" stopColor="#000" stopOpacity="0.20" />
           </linearGradient>
           <linearGradient id="thTop" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#fff" stopOpacity="0.16" />
-            <stop offset="30%"  stopColor="#fff" stopOpacity="0.03" />
-            <stop offset="100%" stopColor="#000" stopOpacity="0.16" />
+            <stop offset="0%"   stopColor="#fff" stopOpacity="0.18" />
+            <stop offset="28%"  stopColor="#fff" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="#000" stopOpacity="0.18" />
           </linearGradient>
-          <clipPath id="thClip">
-            <path d={TEE_PATH} />
-          </clipPath>
+          <clipPath id="thClip"><path d={TEE_PATH} /></clipPath>
         </defs>
 
         <g filter="url(#thShadow)">
-          <path d={TEE_PATH} fill={colorHex} stroke={strokeColor}
-            strokeWidth={isLight ? "2" : "1.5"} strokeLinejoin="round" />
+          <path d={TEE_PATH} fill={colorHex} stroke={stroke} strokeWidth={sw} strokeLinejoin="round" />
         </g>
+        {/* Sleeve underside */}
+        <path
+          d="M 24 128 L 24 170 C 48 158 74 144 108 136 L 108 100 C 76 112 48 122 24 128 Z"
+          fill="rgba(0,0,0,0.09)" />
+        <path
+          d="M 456 128 L 456 170 C 432 158 406 144 372 136 L 372 100 C 404 112 432 122 456 128 Z"
+          fill="rgba(0,0,0,0.09)" />
 
         <g clipPath="url(#thClip)">
-          <rect x="0" y="0" width="460" height="560" fill="url(#thSide)" />
-          <rect x="0" y="0" width="460" height="560" fill="url(#thTop)" />
-          {/* seam lines */}
-          <path d="M 105 155 C 102 128 100 106 100 88"
-            fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M 355 155 C 358 128 360 106 360 88"
-            fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M 21 193 L 78 195" fill="none" stroke="rgba(0,0,0,0.09)" strokeWidth="2" strokeLinecap="round" />
-          <path d="M 382 195 L 439 193" fill="none" stroke="rgba(0,0,0,0.09)" strokeWidth="2" strokeLinecap="round" />
-          <path d="M 84 515 L 376 515" fill="none" stroke="rgba(0,0,0,0.09)" strokeWidth="2" strokeLinecap="round" />
+          <rect x="0" y="0" width="480" height="560" fill="url(#thSide)" />
+          <rect x="0" y="0" width="480" height="560" fill="url(#thTop)" />
+          <path d="M 160 62 C 134 60 114 68 108 86"
+            fill="none" stroke="rgba(0,0,0,0.09)" strokeWidth="1.2" strokeLinecap="round" />
+          <path d="M 320 62 C 346 60 366 68 372 86"
+            fill="none" stroke="rgba(0,0,0,0.09)" strokeWidth="1.2" strokeLinecap="round" />
+          <path d="M 26 185 L 82 184" fill="none" stroke="rgba(0,0,0,0.11)" strokeWidth="2" strokeLinecap="round" />
+          <path d="M 398 184 L 454 185" fill="none" stroke="rgba(0,0,0,0.11)" strokeWidth="2" strokeLinecap="round" />
+          <path d="M 92 502 L 388 502" fill="none" stroke="rgba(0,0,0,0.11)" strokeWidth="2" strokeLinecap="round" />
         </g>
 
-        <path d={COLLAR_OUTER} fill={colorHex} stroke={strokeColor} strokeWidth={isLight ? "2" : "1.5"} />
-        <path d={COLLAR_INNER} fill="rgba(0,0,0,0.26)" />
+        <path d={COLLAR_OUTER} fill={colorHex} stroke={stroke} strokeWidth={sw} />
+        <path d={COLLAR_INNER} fill="rgba(0,0,0,0.28)" />
         <path
-          d="M 164 60 C 174 48 202 42 230 42 C 258 42 286 48 296 60"
-          fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" strokeLinecap="round"
+          d="M 170 68 C 182 54 210 47 240 47 C 270 47 298 54 310 68"
+          fill="none" stroke="rgba(255,255,255,0.20)" strokeWidth="1.5" strokeLinecap="round"
         />
       </svg>
 
       {designUrl ? (
         <div
           className="pointer-events-none absolute left-1/2 z-10"
-          style={{ top: "40%", width: "26%", aspectRatio: "1/1", transform: "translate(-50%,-50%)" }}
+          style={{ top: "41%", width: "27%", aspectRatio: "1/1", transform: "translate(-50%,-50%)" }}
         >
           <div
-            className="absolute inset-0 rounded-sm blur-md"
-            style={{ background: "rgba(0,0,0,0.16)", transform: "scale(1.08) translateY(2px)" }}
+            className="absolute inset-0 rounded blur-md"
+            style={{ background: "rgba(0,0,0,0.18)", transform: "scale(1.10) translateY(2px)" }}
           />
           <Image
-            src={designUrl}
-            alt=""
-            width={300}
-            height={300}
+            src={designUrl} alt="" width={300} height={300}
             className="relative z-10 h-full w-full object-contain rounded-sm"
             unoptimized
-          />
-          <div
-            className="absolute inset-0 z-20 rounded-sm pointer-events-none"
-            style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.10) 0%,transparent 55%,rgba(0,0,0,0.06) 100%)" }}
           />
         </div>
       ) : null}

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 340" fill="none">
+  <defs>
+    <linearGradient id="g" x1="80" y1="40" x2="260" y2="280" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E7D32" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#1B5E20"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="160" y1="72" x2="160" y2="296" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#e5e7eb"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="160" cy="304" rx="120" ry="18" fill="#111827" opacity="0.08"/>
+  <!-- tee -->
+  <path fill="url(#shirt)" stroke="#d4d4d8" stroke-width="3"
+        d="M108 118c-22 4-42 62-42 124l22 118h236l22-118c0-62-24-126-42-126h-62l-6-42c0-34-118-38-132 42l4 126z"/>
+  <ellipse cx="160" cy="112" rx="44" ry="18" fill="#fafafa" stroke="#d4d4d8" stroke-width="3"/>
+  <!-- chest print -->
+  <rect x="112" y="142" width="96" height="96" rx="12" fill="url(#g)" opacity="0.95"/>
+  <text x="160" y="198" fill="white" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="bold"
+        text-anchor="middle">GharSip</text>
+  <!-- spark -->
+  <circle cx="250" cy="68" r="10" fill="#22c55e" opacity="0.9"/>
+</svg>

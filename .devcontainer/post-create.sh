@@ -6,26 +6,21 @@ echo "📦 Installing system dependencies…"
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends gnupg curl ca-certificates
 
-# Yarn (Node feature already installed Node 20)
-if ! command -v yarn >/dev/null 2>&1; then
-  echo "📦 Installing yarn…"
-  sudo npm install -g yarn
-fi
-
-# MongoDB data dir
+# MongoDB data dir (optional — only if you run legacy backend locally)
 sudo mkdir -p /data/db
 sudo chown -R "$USER" /data/db
 
-# ---- Backend ----
+# ---- Backend (optional / legacy APIs) ----
 echo "🐍 Installing Python dependencies…"
-cd /workspaces/$(basename "$PWD")/backend 2>/dev/null || cd "$(dirname "$0")/../backend"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO/backend"
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# ---- Frontend ----
+# ---- Frontend (Gharsip Custom Prints — Next.js) ----
 echo "⚛️  Installing frontend dependencies…"
-cd ../frontend
-yarn install --frozen-lockfile || yarn install
+cd "$REPO/frontend"
+npm ci || npm install
 
 echo ""
-echo "✅ Setup complete. Run ./start.sh to launch everything."
+echo "✅ Setup complete. Run ./start.sh to launch the Prints storefront (:3000)."

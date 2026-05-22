@@ -1,11 +1,14 @@
 # Free-Tier Production Deployment Guide
 
+> **Note (2026):** The storefront in this repo is now **Gharsip Custom Prints** (Next.js in **`frontend/`**). Deploy that with **`DEPLOY_PRINTS.md`** — no CRA `vercel.json` at repo root, no **`REACT_APP_BACKEND_URL`** for the Prints site.  
+> The sections below describe the **legacy liquor stack** (**`backend/`** + Mongo + vendor admin). Use only if you still run or maintain that API.
+
 **Total cost: ₹0/month** for MVP. Upgrade later when traffic justifies it.
 
-**Stack:**
+**Stack (historical liquor MVP):**
 - Database: **MongoDB Atlas M0** (free, 512 MB)
-- Backend: **Render Free** (FastAPI, Singapore region for India low-latency)
-- Frontend: **Vercel Free** (React, global CDN)
+- Backend: **Render Free** (FastAPI)
+- Frontend: ~~Vercel + CRA~~ *(replaced — see **`DEPLOY_PRINTS.md`** for Next.js in **`frontend/`**)*
 - Domain: optional — both providers give you free `*.vercel.app` and `*.onrender.com` URLs
 
 ---
@@ -80,17 +83,16 @@ You'll get a GitHub URL like `https://github.com/YOUR_USERNAME/local-commerce`. 
 1. Go to **https://vercel.com** → Sign up with GitHub
 2. Click **"Add New" → "Project"**
 3. Import your `local-commerce` GitHub repo
-4. Vercel auto-detects `/app/vercel.json`. **Don't change build settings.**
-5. **Environment Variables** section — add ONE variable:
+4. Leave **Framework Preset** on **Other** until you configure, or skip this blueprint for Prints-only — use **`DEPLOY_PRINTS.md`** instead (Root Directory **`frontend`**, Next.js).
+5. **Environment Variables** — for **legacy** liquor React only:
 
    | Key | Value |
    |---|---|
    | `REACT_APP_BACKEND_URL` | Your Render URL from Section 3.7 (no trailing slash) |
 
-6. Click **"Deploy"**. Wait ~2 min.
-7. **Copy your Vercel URL** — e.g. `https://local-commerce.vercel.app`. **Save it.**
+6. Click **"Deploy"** (CRA only).
 
----
+> **Prints storefront:** Deploy from **`frontend/`** as Next.js — see **`DEPLOY_PRINTS.md`**. Do not use repo-root `vercel.json` (removed).
 
 ## 5. Get your VAPID private key
 
@@ -116,7 +118,11 @@ Click "Save" — Render auto-redeploys.
 
 ## 7. Smoke-test (5 min)
 
-Open your **Vercel URL** in a browser:
+> **Gharsip Custom Prints (current storefront):** Use **`DEPLOY_PRINTS.md`** — open `/`, `/customize`, complete a demo order. Skip the liquor checklist unless you still run **`backend/`** + CRA.
+
+Legacy liquor smoke-test (historical):
+
+Open your **Vercel URL** in a browser (when that project was CRA + `/store/`):
 
 - [ ] `https://YOURVERCEL/` — landing page renders
 - [ ] `https://YOURVERCEL/store/sharma-wines` — demo storefront loads, products visible

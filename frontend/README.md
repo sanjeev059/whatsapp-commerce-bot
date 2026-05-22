@@ -1,70 +1,58 @@
-# Getting Started with Create React App
+# Gharsip Custom Prints
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+**Brand:** Gharsip Custom Prints · **Tagline:** Wear Your Vibe  
+Next.js storefront with **live tee preview**, cart, checkout, demo payment flow, tracking UI, and a simple **admin** dashboard.
 
-## Available Scripts
+## Deploy on Vercel
 
-In the project directory, you can run:
+1. In the **monorepo**, set Vercel **Root Directory** to **`frontend`** (this folder).
+2. Framework preset: **Next.js**.
+3. Optional env: **`NEXT_PUBLIC_ADMIN_PIN`** for `/admin` (see repo root **`DEPLOY_PRINTS.md`**).
+4. Default admin PIN is `gharsip2026` unless you set `NEXT_PUBLIC_ADMIN_PIN`.
 
-### `npm start`
+## Pricing (canonical)
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+| Type        | Printed | Plain |
+|------------|---------|-------|
+| Round neck | ₹399    | ₹249  |
+| V-Neck     | ₹419    | ₹269  |
+| Oversized  | ₹449    | ₹299  |
+| Polo       | ₹469    | ₹319  |
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Printed price = plain + ₹150 design line (shown in UI).  
+Delivery: **₹60** below **₹999**, free above.
 
-### `npm test`
+## Routes
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+| Path | Purpose |
+|------|---------|
+| `/` | Home + hero |
+| `/customize` | Live customizer (gallery + SVG tee + overlays) |
+| `/gallery` | Full design gallery |
+| `/cart` | Cart |
+| `/checkout` | Address + coupon `GHARSIP10` (−10% capped ₹100 demo) |
+| `/payment` | **Simulate paid order** until Razorpay is wired |
+| `/order-confirmed` | Success + WhatsApp deeplink |
+| `/track` | Timeline (stored per-browser for demo) |
+| `/admin` | Ops table + Qikink JSON copy |
 
-### `npm run build`
+## Next steps (your Phase 2+)
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+1. **Razorpay:** Create orders + verify signature server-side (`app/api/` route), never trust client-only success.
+2. **Firestore:** Replace `localStorage` order index with `orders` / `designs` collections (schema in your brief).
+3. **Qikink:** Call real API from the verified-payment webhook; store `tracking_number` / `qikink_order_id`.
+4. **WhatsApp:** Cloud API templates for shipped / confirmed.
+5. **Images:** Swap `placehold.co` URLs in `lib/designs.ts` for uploads (Firebase Storage + Cloudinary optional).
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Local dev
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bash
+npm install
+npm run dev
+```
 
-### `npm run eject`
+Open [http://localhost:3000](http://localhost:3000).
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## API stub
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+`POST /api/fulfillment/qikink` logs the JSON body and returns a fake reference — swap for vendor integration.

@@ -112,5 +112,9 @@ async def verify_otp(req: VerifyRequest):
     if datetime.now(timezone.utc) > expiry:
         return {"success": False, "message": "OTP expired. Please request a new one."}
 
-    await _otp_coll.delete_one({"email": req.email.lower()})
+    # Mark as verified but keep record so app can retry if client-side step fails
+    await _otp_coll.update_one(
+        {"email": req.email.lower()},
+        {"$set": {"verified": True}},
+    )
     return {"success": True}

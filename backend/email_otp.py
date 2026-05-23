@@ -1,14 +1,13 @@
-"""Email OTP — send & verify via Resend HTTP API (SMTP blocked on Render free tier)."""
+"""Email OTP — send & verify via Brevo (Sendinblue) HTTP API."""
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import random
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -17,8 +16,9 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 router = APIRouter()
 _otp_coll: AsyncIOMotorCollection | None = None
 
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM = os.environ.get("RESEND_FROM", "Gharsip <onboarding@resend.dev>")
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
+BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "sanjeevdesai538@gmail.com")
+BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "Gharsip")
 
 
 def mount_email_otp(api_router, otp_collection: AsyncIOMotorCollection):
@@ -30,13 +30,14 @@ def mount_email_otp(api_router, otp_collection: AsyncIOMotorCollection):
 class SendRequest(BaseModel):
     email: str
 
+
 class VerifyRequest(BaseModel):
     email: str
     otp: str
 
 
-def _send_resend_sync(to: str, otp: str):
-    """Blocking HTTP call to Resend API — run in thread pool."""
+def _send_brevo_sync(to: str, otp: str):
+    """Blocking HTTP call to Brevo API — run in thread pool."""
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;">
       <h2 style="color:#2E7D32;margin-bottom:8px;">Gharsip</h2>
@@ -48,30 +49,29 @@ def _send_resend_sync(to: str, otp: str):
     </div>
     """
     payload = json.dumps({
-        "from": RESEND_FROM,
-        "to": [to],
+        "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+        "to": [{"email": to}],
         "subject": f"{otp} is your Gharsip verification code",
-        "html": html,
-        "text": f"Your Gharsip OTP is: {otp}\n\nExpires in 10 minutes. Do not share this code.",
+        "htmlContent": html,
+        "textContent": f"Your Gharsip OTP is: {otp}\n\nExpires in 10 minutes. Do not share this code.",
     }).encode()
 
     req = urllib.request.Request(
-        "https://api.resend.com/emails",
+        "https://api.brevo.com/v3/smtp/email",
         data=payload,
         headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "api-key": BREVO_API_KEY,
             "Content-Type": "application/json",
+            "Accept": "application/json",
         },
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read())
-            if "id" not in body:
-                raise RuntimeError(f"Resend error: {body}")
+            resp.read()
     except urllib.error.HTTPError as e:
         error_body = e.read().decode()
-        raise RuntimeError(f"Resend HTTP {e.code}: {error_body}")
+        raise RuntimeError(f"Brevo HTTP {e.code}: {error_body}")
 
 
 @router.post("/send")
@@ -85,12 +85,12 @@ async def send_otp(req: SendRequest):
         upsert=True,
     )
 
-    if not RESEND_API_KEY:
+    if not BREVO_API_KEY:
         return {"success": False, "message": "Email service not configured on server"}
 
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _send_resend_sync, req.email, otp)
+        await loop.run_in_executor(None, _send_brevo_sync, req.email, otp)
         return {"success": True}
     except Exception as e:
         return {"success": False, "message": str(e)}

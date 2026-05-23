@@ -236,7 +236,7 @@ export default function SareePage() {
         <div className="pointer-events-none absolute inset-0 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 width%3D%2260%22 height%3D%2260%22%3E%3Cpath d%3D%22M0 0h60v60H0z%22 fill%3D%22none%22%2F%3E%3Ccircle cx%3D%2230%22 cy%3D%2230%22 r%3D%221%22 fill%3D%22rgba(255%2C255%2C255%2C0.06)%22%2F%3E%3C%2Fsvg%3E')] opacity-60" />
         <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold">
-            ✂️ Bengaluru's Favourite Saree Service
+            ✂️ Bengaluru&apos;s Favourite Saree Service
           </span>
           <h1 className="mt-4 text-4xl font-extrabold sm:text-5xl">
             Professional Saree &amp; Blouse<br />
@@ -752,7 +752,7 @@ export default function SareePage() {
             {[
               { q: "Which areas do you cover?", a: "We currently serve Varthur, Balagere, Whitefield, Marathahalli, and surrounding areas in east Bengaluru." },
               { q: "How does home pickup work?", a: "Choose your date and we send a trained representative to collect your sarees. Pickup is free above ₹3,000. ₹100 below that. Delivery back to your home is always free." },
-              { q: "How long does the work take?", a: "Pico and fall: 2–3 days. Plain blouse: 4–5 days. Designer blouse: 7–10 days. Bridal package: 12–15 days. We'll confirm the exact timeline when we pick up." },
+              { q: "How long does the work take?", a: "Pico and fall: 2–3 days. Plain blouse: 4–5 days. Designer blouse: 7–10 days. Bridal package: 12–15 days. We will confirm the exact timeline when we pick up." },
               { q: "What payment options are available?", a: "Cash on delivery (when we return your sarees) or UPI advance to gharsip@ybl. No online payment required at booking." },
               { q: "Who does the work?", a: "All our tailors are verified with 5+ years of experience in Bengaluru bridal and saree work. We inspect every piece before delivery." },
             ].map((faq) => (

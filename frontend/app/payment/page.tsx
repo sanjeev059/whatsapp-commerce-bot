@@ -4,10 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { useCart } from "@/lib/CartContext";
-import { persistOrderDraft } from "@/lib/orders";
-import { createOrderOnBackend, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { computeCartDelivery } from "@/lib/pricing";
-import type { StoredOrder } from "@/lib/types";
 
 const CHECKOUT_KEY = "prints_checkout_form";
 const PENDING_KEY  = "gharsip_cf_pending";
@@ -32,7 +29,7 @@ function generateOrderId() {
 }
 
 export default function PaymentPage() {
-  const { lines, clearCart } = useCart();
+  const { lines } = useCart();
   const [sdkReady, setSdkReady] = useState(false);
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState<string | null>(null);

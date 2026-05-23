@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
+from bookings import mount_bookings
 from orders import mount_orders
 from starlette.middleware.cors import CORSMiddleware
 
@@ -27,11 +28,13 @@ logger = logging.getLogger("gharsip_api")
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ.get("DB_NAME", "gharsip_store")
 orders_coll_name = os.environ.get("ORDERS_COLLECTION", "gharsip_orders")
+bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 orders_coll = db[orders_coll_name]
+bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
@@ -82,13 +85,16 @@ async def api_root():
 
 
 mount_orders(api, orders_coll=orders_coll, meta_coll=meta_coll, rate_limit=rate_limit)
+mount_bookings(api, bookings_coll=bookings_coll, meta_coll=meta_coll, rate_limit=rate_limit)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await orders_coll.create_index("id", unique=True)
     await orders_coll.create_index([("createdAt", -1)])
-    logger.info("Mongo indexes ready — DB=%s orders=%s", db_name, orders_coll_name)
+    await bookings_coll.create_index("id", unique=True)
+    await bookings_coll.create_index([("createdAt", -1)])
+    logger.info("Mongo indexes ready — DB=%s orders=%s bookings=%s", db_name, orders_coll_name, bookings_coll_name)
     yield
     client.close()
 

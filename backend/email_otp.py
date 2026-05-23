@@ -1,13 +1,13 @@
 """Email OTP — send & verify via Gmail SMTP."""
 from __future__ import annotations
 
+import asyncio
 import os
 import random
 import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -34,7 +34,8 @@ class VerifyRequest(BaseModel):
     otp: str
 
 
-def _send_gmail(to: str, otp: str):
+def _send_gmail_sync(to: str, otp: str):
+    """Blocking SMTP call — must be run in a thread pool."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"{otp} is your Gharsip verification code"
     msg["From"] = f"Gharsip <{GMAIL_USER}>"
@@ -54,7 +55,19 @@ def _send_gmail(to: str, otp: str):
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    # Try port 587 (STARTTLS) first — more likely to be open on cloud hosts
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.sendmail(GMAIL_USER, to, msg.as_string())
+        return
+    except Exception:
+        pass
+
+    # Fallback: port 465 (SSL)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
         server.login(GMAIL_USER, GMAIL_PASS)
         server.sendmail(GMAIL_USER, to, msg.as_string())
 
@@ -74,7 +87,8 @@ async def send_otp(req: SendRequest):
         return {"success": False, "message": "Email not configured on server"}
 
     try:
-        _send_gmail(req.email, otp)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _send_gmail_sync, req.email, otp)
         return {"success": True}
     except Exception as e:
         return {"success": False, "message": str(e)}

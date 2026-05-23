@@ -20,10 +20,10 @@ GMAIL_USER = os.environ.get("GMAIL_USER", "")
 GMAIL_PASS = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 
-def mount_email_otp(app, otp_collection: AsyncIOMotorCollection):
+def mount_email_otp(api_router, otp_collection: AsyncIOMotorCollection):
     global _otp_coll
     _otp_coll = otp_collection
-    app.include_router(router, prefix="/api/otp")
+    api_router.include_router(router, prefix="/otp")
 
 
 class SendRequest(BaseModel):

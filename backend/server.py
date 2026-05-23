@@ -108,8 +108,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+mount_email_otp(api, otp_collection=otp_coll)
 app.include_router(api)
-mount_email_otp(app, otp_collection=otp_coll)
 
 _cors_env = os.environ.get("CORS_ORIGINS", "").strip()
 if _cors_env:

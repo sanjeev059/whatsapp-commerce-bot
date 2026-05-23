@@ -1,10 +1,11 @@
-"""Email OTP — send & verify via Gmail SMTP."""
+"""Email OTP — send & verify via Resend HTTP API (SMTP blocked on Render free tier)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
-import smtplib
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -16,8 +17,8 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 router = APIRouter()
 _otp_coll: AsyncIOMotorCollection | None = None
 
-GMAIL_USER = os.environ.get("GMAIL_USER", "")
-GMAIL_PASS = os.environ.get("GMAIL_APP_PASSWORD", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM", "Gharsip <onboarding@resend.dev>")
 
 
 def mount_email_otp(api_router, otp_collection: AsyncIOMotorCollection):
@@ -34,14 +35,8 @@ class VerifyRequest(BaseModel):
     otp: str
 
 
-def _send_gmail_sync(to: str, otp: str):
-    """Blocking SMTP call — must be run in a thread pool."""
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{otp} is your Gharsip verification code"
-    msg["From"] = f"Gharsip <{GMAIL_USER}>"
-    msg["To"] = to
-
-    text = f"Your Gharsip OTP is: {otp}\n\nExpires in 10 minutes. Do not share this code."
+def _send_resend_sync(to: str, otp: str):
+    """Blocking HTTP call to Resend API — run in thread pool."""
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;">
       <h2 style="color:#2E7D32;margin-bottom:8px;">Gharsip</h2>
@@ -52,24 +47,27 @@ def _send_gmail_sync(to: str, otp: str):
       <p style="color:#9CA3AF;font-size:12px;">Team Gharsip · Wear Your Vibe. Serve Your Style.</p>
     </div>
     """
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
+    payload = json.dumps({
+        "from": RESEND_FROM,
+        "to": [to],
+        "subject": f"{otp} is your Gharsip verification code",
+        "html": html,
+        "text": f"Your Gharsip OTP is: {otp}\n\nExpires in 10 minutes. Do not share this code.",
+    }).encode()
 
-    # Try port 587 (STARTTLS) first — more likely to be open on cloud hosts
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_PASS)
-            server.sendmail(GMAIL_USER, to, msg.as_string())
-        return
-    except Exception:
-        pass
-
-    # Fallback: port 465 (SSL)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-        server.login(GMAIL_USER, GMAIL_PASS)
-        server.sendmail(GMAIL_USER, to, msg.as_string())
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        body = json.loads(resp.read())
+        if "id" not in body:
+            raise RuntimeError(f"Resend error: {body}")
 
 
 @router.post("/send")
@@ -83,12 +81,12 @@ async def send_otp(req: SendRequest):
         upsert=True,
     )
 
-    if not GMAIL_USER or not GMAIL_PASS:
-        return {"success": False, "message": "Email not configured on server"}
+    if not RESEND_API_KEY:
+        return {"success": False, "message": "Email service not configured on server"}
 
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _send_gmail_sync, req.email, otp)
+        await loop.run_in_executor(None, _send_resend_sync, req.email, otp)
         return {"success": True}
     except Exception as e:
         return {"success": False, "message": str(e)}

@@ -1,24 +1,29 @@
 import Link from "next/link";
 
+const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "919999999999";
+
 export function Footer() {
   return (
     <footer className="mt-16 border-t border-zinc-200 bg-zinc-50">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
 
-        {/* Top row */}
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
 
           {/* Brand */}
           <div>
-            <div className="flex flex-col leading-tight">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand">Gharsip</span>
-              <span className="text-lg font-extrabold text-zinc-900">Custom Prints</span>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white font-extrabold text-sm">G</div>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-brand">Gharsip</span>
+                <span className="text-[13px] font-extrabold text-zinc-900">Wear Your Vibe</span>
+              </div>
             </div>
             <p className="mt-3 text-sm text-zinc-500">
-              Premium custom tees printed and shipped across Karnataka &amp; India. Design yours in minutes.
+              Custom t-shirts printed &amp; shipped across India. Saree &amp; blouse services at your doorstep in Bengaluru.
             </p>
+            <p className="mt-1.5 text-xs font-semibold text-brand">Varthur · Balagere · Whitefield · Marathahalli</p>
             <a
-              href="https://wa.me/919999999999"
+              href={`https://wa.me/${WA_NUMBER}?text=Hi%20Gharsip%2C%20I%20need%20help`}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#1ebe58] transition"
@@ -30,60 +35,68 @@ export function Footer() {
             </a>
           </div>
 
-          {/* Quick links */}
+          {/* T-shirts */}
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Shop</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">T-Shirts</h3>
             <ul className="mt-4 space-y-2.5">
               {[
-                { href: "/gallery", label: "All Designs" },
-                { href: "/customize", label: "Start Designing" },
-                { href: "/gallery?cat=fitness", label: "Fitness Tees" },
-                { href: "/gallery?cat=tech", label: "Tech Tees" },
-                { href: "/gallery?cat=kannada", label: "Kannada Tees" },
+                { href: "/shop",             label: "Shop Ready Tees"  },
+                { href: "/customize",        label: "Design Your Own"  },
+                { href: "/gallery",          label: "Browse Designs"   },
+                { href: "/gallery?cat=fitness",  label: "Fitness Tees" },
+                { href: "/gallery?cat=kannada",  label: "Kannada Tees" },
               ].map((l) => (
                 <li key={l.href}>
-                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">
-                    {l.label}
-                  </Link>
+                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* Help */}
+          {/* Saree services */}
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Saree Services</h3>
+            <ul className="mt-4 space-y-2.5">
+              {[
+                { href: "/saree",             label: "All Services"       },
+                { href: "/saree#pico",        label: "Pico Work"          },
+                { href: "/saree#fall",        label: "Fall Work"          },
+                { href: "/saree#blouse",      label: "Blouse Stitching"   },
+                { href: "/saree#packages",    label: "Bridal Packages"    },
+                { href: "/saree#booking",     label: "Book Home Pickup"   },
+              ].map((l) => (
+                <li key={l.label}>
+                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Help + trust */}
           <div>
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Help</h3>
             <ul className="mt-4 space-y-2.5">
               {[
-                { href: "/track", label: "Track Order" },
-                { href: "#", label: "Sizing Guide" },
-                { href: "#", label: "Return Policy" },
-                { href: "#", label: "Shipping Info" },
-                { href: "#", label: "FAQ" },
+                { href: "/track", label: "Track Order"    },
+                { href: "#",      label: "Sizing Guide"   },
+                { href: "#",      label: "Return Policy"  },
+                { href: "#",      label: "Shipping Info"  },
               ].map((l) => (
                 <li key={l.label}>
-                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">
-                    {l.label}
-                  </Link>
+                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
                 </li>
               ))}
             </ul>
-          </div>
-
-          {/* Trust badges */}
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Why Gharsip</h3>
-            <ul className="mt-4 space-y-3">
+            <h3 className="mt-6 text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Why Gharsip</h3>
+            <ul className="mt-3 space-y-2">
               {[
-                { icon: "🧵", text: "100% premium cotton" },
-                { icon: "🎨", text: "Sharp DTF printing" },
-                { icon: "📦", text: "4–5 day delivery" },
-                { icon: "↩️", text: "Easy 7-day returns" },
+                { icon: "🧵", text: "Premium cotton tees" },
+                { icon: "✂️", text: "Expert tailors 5+ yrs" },
+                { icon: "🏠", text: "Free home pickup" },
                 { icon: "🔒", text: "Secure payments" },
               ].map((b) => (
                 <li key={b.text} className="flex items-center gap-2 text-sm text-zinc-500">
-                  <span>{b.icon}</span>
-                  {b.text}
+                  <span>{b.icon}</span>{b.text}
                 </li>
               ))}
             </ul>
@@ -93,7 +106,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-zinc-200 pt-6 sm:flex-row">
           <p className="text-xs text-zinc-400">
-            © {new Date().getFullYear()} Gharsip Custom Prints. Bengaluru, India.
+            © {new Date().getFullYear()} Gharsip. Bengaluru, India · hello@gharsip.com
           </p>
           <div className="flex gap-4 text-xs text-zinc-400">
             <Link href="#" className="hover:text-brand transition-colors">Privacy</Link>

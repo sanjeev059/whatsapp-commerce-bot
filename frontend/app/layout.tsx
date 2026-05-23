@@ -4,6 +4,7 @@ import "./globals.css";
 import { CartProvider } from "@/lib/CartContext";
 import { ChatWidget } from "@/components/ChatWidget";
 import { Navbar } from "@/components/Navbar";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -28,6 +29,7 @@ export default function RootLayout({
         <CartProvider>
           <Navbar />
           <main>{children}</main>
+          <WhatsAppButton />
           <ChatWidget />
         </CartProvider>
       </body>

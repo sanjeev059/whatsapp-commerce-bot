@@ -12,6 +12,7 @@ const featuredProducts = READY_PRODUCTS.filter((p) => p.badge).slice(0, 4);
 const reviews = [
   { name: "Ananya S.", city: "Bangalore", rating: 5, text: "The live preview is amazing — exactly what I ordered. Cotton quality is excellent and delivery was super quick!" },
   { name: "Rohan K.", city: "Mysuru",    rating: 5, text: "The Kannada graphic popped perfectly on the black tee. Premium feel, fast delivery — already ordered 3 more." },
+  { name: "Priya M.", city: "Varthur",   rating: 5, text: "Got pico + fall done on 3 sarees. Home pickup was so convenient and the finish is beautiful. Will be back for blouse stitching!" },
   { name: "Nikita P.", city: "Hubli",    rating: 5, text: "Quick delivery in under 5 days. Already ordered a second tee for my brother. Highly recommended!" },
 ];
 
@@ -37,26 +38,26 @@ export default function HomePage() {
               Wear Your Vibe · Made in Bengaluru
             </span>
             <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-zinc-900 sm:text-5xl lg:text-6xl">
-              Design Your
+              Design Your Tee.
               <br />
-              <span className="text-brand">Perfect Tee</span>
+              <span className="text-brand">Style Your Saree.</span>
             </h1>
             <p className="mt-5 max-w-lg text-lg text-zinc-500">
-              Browse ready-to-order tees or design your own — pick a graphic, choose your colour, see it live on the shirt, then order. Printed &amp; shipped across India in 4–5 days.
+              Custom t-shirts delivered across India. Saree pico, fall &amp; blouse services at your doorstep in Bengaluru — home pickup included.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
                 href="/shop"
                 className="inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark"
               >
-                Shop Now
+                Shop T-Shirts
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
               </Link>
               <Link
-                href="/customize"
+                href="/saree"
                 className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-6 py-4 text-base font-semibold text-zinc-700 shadow-sm hover:border-brand hover:text-brand transition"
               >
-                Design Your Own
+                Book Saree Service
               </Link>
             </div>
             <div className="mt-8 flex items-center gap-3">
@@ -84,6 +85,74 @@ export default function HomePage() {
               <p className="text-xl font-extrabold text-zinc-900">4–5 days</p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ── 3 Service cards ──────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+        <div className="text-center mb-10">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">What we offer</p>
+          <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">One platform, three services</h2>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-3">
+          {[
+            {
+              icon: "👕",
+              title: "Custom T-Shirts",
+              desc: "Design your own tee. Pick from 20+ graphics or upload your own. We print with DTF and ship across India in 4–5 days.",
+              cta: "Start Designing",
+              href: "/customize",
+              badge: "Ships all India",
+            },
+            {
+              icon: "✂️",
+              title: "Saree Services",
+              desc: "Pico, fall, blouse stitching, embroidery & bridal work at your doorstep. Home pickup & delivery in Varthur, Balagere, Whitefield.",
+              cta: "Book Now",
+              href: "/saree",
+              badge: "Free home pickup",
+              featured: true,
+            },
+            {
+              icon: "🏷️",
+              title: "Seasonal Deals",
+              desc: "Trending products, festival specials, and curated picks — updated every season. Best prices, delivered fast.",
+              cta: "Shop Now",
+              href: "/shop",
+              badge: "New arrivals weekly",
+            },
+          ].map((s) => (
+            <div
+              key={s.title}
+              className={`relative flex flex-col rounded-2xl border p-6 shadow-sm transition hover:shadow-md ${
+                s.featured
+                  ? "border-brand/30 bg-brand-muted"
+                  : "border-zinc-200 bg-white"
+              }`}
+            >
+              {s.featured && (
+                <span className="absolute right-4 top-4 rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">
+                  Popular
+                </span>
+              )}
+              <span className="text-4xl">{s.icon}</span>
+              <h3 className="mt-4 text-lg font-extrabold text-zinc-900">{s.title}</h3>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-500">{s.desc}</p>
+              <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-full border border-brand/20 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-brand">
+                ✓ {s.badge}
+              </span>
+              <Link
+                href={s.href}
+                className={`mt-4 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+                  s.featured
+                    ? "bg-brand text-white hover:bg-brand-dark"
+                    : "border border-zinc-200 text-zinc-700 hover:border-brand hover:text-brand"
+                }`}
+              >
+                {s.cta} →
+              </Link>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -196,7 +265,7 @@ export default function HomePage() {
             <span className="text-sm text-zinc-400">· 2,000+ reviews</span>
           </div>
         </div>
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
+        <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {reviews.map((r) => (
             <figure key={r.name} className="rounded-2xl border border-brand/10 bg-white p-6 shadow-sm">
               <div className="flex text-amber-400">

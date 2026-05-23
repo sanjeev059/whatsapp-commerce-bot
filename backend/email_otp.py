@@ -64,10 +64,14 @@ def _send_resend_sync(to: str, otp: str):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        body = json.loads(resp.read())
-        if "id" not in body:
-            raise RuntimeError(f"Resend error: {body}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read())
+            if "id" not in body:
+                raise RuntimeError(f"Resend error: {body}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        raise RuntimeError(f"Resend HTTP {e.code}: {error_body}")
 
 
 @router.post("/send")

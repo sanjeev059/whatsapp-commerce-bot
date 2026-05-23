@@ -18,6 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bookings import mount_bookings
 from orders import mount_orders
 from email_otp import mount_email_otp
+from users import mount_users
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
@@ -32,6 +33,7 @@ orders_coll_name = os.environ.get("ORDERS_COLLECTION", "gharsip_orders")
 bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
 otp_coll_name = os.environ.get("OTP_COLLECTION", "gharsip_email_otps")
+users_coll_name = os.environ.get("USERS_COLLECTION", "gharsip_users")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
@@ -39,6 +41,7 @@ orders_coll = db[orders_coll_name]
 bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
 otp_coll = db[otp_coll_name]
+users_coll = db[users_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
@@ -109,6 +112,7 @@ app = FastAPI(
 )
 
 mount_email_otp(api, otp_collection=otp_coll)
+mount_users(api, users_collection=users_coll)
 app.include_router(api)
 
 _cors_env = os.environ.get("CORS_ORIGINS", "").strip()

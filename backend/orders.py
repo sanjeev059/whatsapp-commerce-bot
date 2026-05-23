@@ -252,6 +252,17 @@ def mount_orders(
         return {"id": order_id, "total": total}
 
     @orders.get(
+        "",
+        dependencies=[Depends(rate_limit(window_seconds=60, max_calls=30))],
+    )
+    async def list_my_orders(email: str = Query(..., description="Customer email")):
+        cur = orders_coll.find(
+            {"customer.email": email.strip().lower()}, {"_id": 0}
+        ).sort("createdAt", -1).limit(50)
+        items = await cur.to_list(50)
+        return {"orders": items}
+
+    @orders.get(
         "/{order_id}",
         dependencies=[Depends(rate_limit(window_seconds=60, max_calls=40))],
     )

@@ -89,7 +89,6 @@ async def api_root():
 
 mount_orders(api, orders_coll=orders_coll, meta_coll=meta_coll, rate_limit=rate_limit)
 mount_bookings(api, bookings_coll=bookings_coll, meta_coll=meta_coll, rate_limit=rate_limit)
-mount_email_otp(app, otp_collection=otp_coll)
 
 
 @asynccontextmanager
@@ -110,6 +109,7 @@ app = FastAPI(
 )
 
 app.include_router(api)
+mount_email_otp(app, otp_collection=otp_coll)
 
 _cors_env = os.environ.get("CORS_ORIGINS", "").strip()
 if _cors_env:

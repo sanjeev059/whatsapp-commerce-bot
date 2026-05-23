@@ -7,9 +7,10 @@ import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 router = APIRouter()
@@ -27,7 +28,6 @@ def mount_email_otp(app, otp_collection: AsyncIOMotorCollection):
 
 class SendRequest(BaseModel):
     email: str
-
 
 class VerifyRequest(BaseModel):
     email: str

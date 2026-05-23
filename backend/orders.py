@@ -95,6 +95,7 @@ class OrderCreateIn(BaseModel):
 class OrderPatchIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    status: Optional[str] = None
     tracking: Optional[str] = None
     qikinkId: Optional[str] = None
     timeline: Optional[List[TimelineStepIn]] = None
@@ -233,6 +234,7 @@ def mount_orders(
 
         doc: Dict[str, Any] = {
             "id": order_id,
+            "status": "pending",
             "lines": canon_lines,
             "customer": payload.customer.model_dump(),
             "coupon": coup,
@@ -297,6 +299,11 @@ def mount_orders(
 
         if "timeline" in incoming and body.timeline is not None:
             patch["timeline"] = [t.model_dump(exclude_none=True) for t in body.timeline]
+
+        if "status" in incoming and body.status is not None:
+            valid_statuses = {"pending", "printing", "qc", "shipped", "out_for_delivery", "delivered", "cancelled"}
+            if body.status in valid_statuses:
+                patch["status"] = body.status
 
         if "tracking" in incoming:
             patch["tracking"] = (incoming["tracking"] or "").strip() or None

@@ -1,11 +1,10 @@
-"""Gharsip chat bookings — saree/blouse service bookings captured by the AI assistant."""
-
+"""Gharsip saree service bookings — MongoDB-backed."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pydantic import BaseModel, ConfigDict
@@ -23,12 +22,15 @@ def now_iso() -> str:
 class BookingIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    customerName: str
-    customerPhone: str
+    userId: str = ""
+    email: str = ""
+    name: str
+    phone: str
     address: str
-    service: str
+    pincode: str = ""
+    services: List[str]
     pickupDate: str
-    amount: int
+    timeSlot: str = ""
     notes: Optional[str] = None
 
 
@@ -75,18 +77,32 @@ def mount_bookings(
 
         doc: Dict[str, Any] = {
             "id": booking_id,
-            "customerName": payload.customerName,
-            "customerPhone": payload.customerPhone,
+            "userId": payload.userId,
+            "email": payload.email.lower(),
+            "name": payload.name,
+            "phone": payload.phone,
             "address": payload.address,
-            "service": payload.service,
+            "pincode": payload.pincode,
+            "services": payload.services,
             "pickupDate": payload.pickupDate,
-            "amount": payload.amount,
-            "notes": payload.notes,
+            "timeSlot": payload.timeSlot,
+            "notes": payload.notes or "",
             "status": "new",
             "createdAt": now_iso(),
         }
         await bookings_coll.insert_one(dict(doc))
         return {"id": booking_id}
+
+    @bookings.get(
+        "",
+        dependencies=[Depends(rate_limit(window_seconds=60, max_calls=20))],
+    )
+    async def list_my_bookings(email: str = Query(..., description="Customer email")):
+        cur = bookings_coll.find(
+            {"email": email.strip().lower()}, {"_id": 0}
+        ).sort("createdAt", -1).limit(50)
+        items = await cur.to_list(50)
+        return {"bookings": items}
 
     @admin.get("/bookings", dependencies=[Depends(require_admin)])
     async def list_bookings(limit: int = 100, skip: int = 0):

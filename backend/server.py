@@ -113,6 +113,28 @@ app = FastAPI(
 
 mount_email_otp(api, otp_collection=otp_coll)
 mount_users(api, users_collection=users_coll)
+
+
+@api.get("/admin/stats")
+async def admin_stats():
+    from datetime import date
+    today = date.today().isoformat()
+    all_orders = await orders_coll.count_documents({})
+    all_bookings = await bookings_coll.count_documents({})
+    pending_orders = await orders_coll.count_documents({"status": "pending"})
+    new_bookings = await bookings_coll.count_documents({"status": "new"})
+    today_orders = await orders_coll.count_documents({"createdAt": {"$gte": today}})
+    today_bookings = await bookings_coll.count_documents({"createdAt": {"$gte": today}})
+    return {
+        "totalOrders": all_orders,
+        "totalBookings": all_bookings,
+        "pendingOrders": pending_orders,
+        "newBookings": new_bookings,
+        "todayOrders": today_orders,
+        "todayBookings": today_bookings,
+    }
+
+
 app.include_router(api)
 
 _cors_env = os.environ.get("CORS_ORIGINS", "").strip()

@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
 from bookings import mount_bookings
 from orders import mount_orders
+from email_otp import mount_email_otp
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
@@ -30,12 +31,14 @@ db_name = os.environ.get("DB_NAME", "gharsip_store")
 orders_coll_name = os.environ.get("ORDERS_COLLECTION", "gharsip_orders")
 bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
+otp_coll_name = os.environ.get("OTP_COLLECTION", "gharsip_email_otps")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 orders_coll = db[orders_coll_name]
 bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
+otp_coll = db[otp_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
@@ -86,6 +89,7 @@ async def api_root():
 
 mount_orders(api, orders_coll=orders_coll, meta_coll=meta_coll, rate_limit=rate_limit)
 mount_bookings(api, bookings_coll=bookings_coll, meta_coll=meta_coll, rate_limit=rate_limit)
+mount_email_otp(app, otp_collection=otp_coll)
 
 
 @asynccontextmanager

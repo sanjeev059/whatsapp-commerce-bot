@@ -37,8 +37,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
 
+  const model = process.env.CLAUDE_MODEL ?? "claude-haiku-4-5-20251001";
+
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model,
     max_tokens: 1024,
     system: GHARSIP_SYSTEM_PROMPT,
     tools: [SAVE_BOOKING_TOOL],
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
 
     const follow = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model,
       max_tokens: 1024,
       system: GHARSIP_SYSTEM_PROMPT,
       tools: [SAVE_BOOKING_TOOL],

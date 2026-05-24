@@ -15,11 +15,11 @@ function TrackInner() {
   const [phone, setPhone] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [found, setFound] = useState<StoredOrder | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const lookup = async (e: FormEvent) => {
-    e.preventDefault();
-    const idNorm = orderId.replace(/^#/, "").trim();
-    const p10 = phone.replace(/\D/g, "").slice(-10);
+  const doLookup = async (idRaw: string, phoneRaw: string) => {
+    const idNorm = idRaw.replace(/^#/, "").trim();
+    const p10 = phoneRaw.replace(/\D/g, "").slice(-10);
 
     if (idNorm.length < 5 || p10.length !== 10) {
       setMsg("Enter order number and a valid phone.");
@@ -29,7 +29,7 @@ function TrackInner() {
 
     if (isGharsipApiEnabled()) {
       try {
-        const o = await fetchOrderFromBackend(idNorm, phone);
+        const o = await fetchOrderFromBackend(idNorm, phoneRaw);
         if (!o) {
           setFound(null);
           setMsg("Order not found — check the ID and phone used at checkout.");
@@ -54,12 +54,24 @@ function TrackInner() {
     }
     const op = o.customer.phone.replace(/\D/g, "");
     if (p10.length < 10 || op.slice(-10) !== p10) {
-      setMsg("Phone doesn’t match this order.");
+      setMsg("Phone doesn't match this order.");
       setFound(null);
       return;
     }
     setMsg(null);
     setFound(o);
+  };
+
+  const lookup = async (e: FormEvent) => {
+    e.preventDefault();
+    await doLookup(orderId, phone);
+  };
+
+  const refresh = async () => {
+    if (!found) return;
+    setRefreshing(true);
+    await doLookup(orderId, phone);
+    setRefreshing(false);
   };
 
   const o = found;
@@ -89,7 +101,16 @@ function TrackInner() {
       {msg ? <p className="mt-4 text-sm text-amber-800">{msg}</p> : null}
       {o ? (
         <div className="mt-10">
-          <p className="text-sm font-bold text-zinc-500">Order #{o.id}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-zinc-500">Order #{o.id}</p>
+            <button
+              onClick={refresh}
+              disabled={refreshing}
+              className="flex items-center gap-1 text-xs font-bold text-brand hover:underline disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "↻ Refresh status"}
+            </button>
+          </div>
           <ol className="relative mt-4 space-y-6 border-l-2 border-brand-muted pl-6">
             {o.timeline.map((step) => (
               <li key={step.key} className="relative">

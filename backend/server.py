@@ -19,6 +19,7 @@ from bookings import mount_bookings
 from orders import mount_orders
 from email_otp import mount_email_otp
 from users import mount_users
+from products import mount_products
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
@@ -34,6 +35,7 @@ bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
 otp_coll_name = os.environ.get("OTP_COLLECTION", "gharsip_email_otps")
 users_coll_name = os.environ.get("USERS_COLLECTION", "gharsip_users")
+products_coll_name = os.environ.get("PRODUCTS_COLLECTION", "gharsip_products")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
@@ -42,6 +44,7 @@ bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
 otp_coll = db[otp_coll_name]
 users_coll = db[users_coll_name]
+products_coll = db[products_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
@@ -100,7 +103,9 @@ async def lifespan(app: FastAPI):
     await orders_coll.create_index([("createdAt", -1)])
     await bookings_coll.create_index("id", unique=True)
     await bookings_coll.create_index([("createdAt", -1)])
-    logger.info("Mongo indexes ready — DB=%s orders=%s bookings=%s", db_name, orders_coll_name, bookings_coll_name)
+    await products_coll.create_index("id", unique=True)
+    await products_coll.create_index([("category", 1), ("active", 1)])
+    logger.info("Mongo indexes ready — DB=%s orders=%s bookings=%s products=%s", db_name, orders_coll_name, bookings_coll_name, products_coll_name)
     yield
     client.close()
 
@@ -113,6 +118,7 @@ app = FastAPI(
 
 mount_email_otp(api, otp_collection=otp_coll)
 mount_users(api, users_collection=users_coll)
+mount_products(api, products_coll=products_coll, rate_limit=rate_limit)
 
 
 @api.get("/admin/stats")
@@ -125,6 +131,7 @@ async def admin_stats():
     new_bookings = await bookings_coll.count_documents({"status": "new"})
     today_orders = await orders_coll.count_documents({"createdAt": {"$gte": today}})
     today_bookings = await bookings_coll.count_documents({"createdAt": {"$gte": today}})
+    total_products = await products_coll.count_documents({"active": True})
     return {
         "totalOrders": all_orders,
         "totalBookings": all_bookings,
@@ -132,6 +139,7 @@ async def admin_stats():
         "newBookings": new_bookings,
         "todayOrders": today_orders,
         "todayBookings": today_bookings,
+        "totalProducts": total_products,
     }
 
 

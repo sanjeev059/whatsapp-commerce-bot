@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
@@ -28,6 +28,69 @@ const ITEM_CATEGORIES: { id: string; label: string }[] = [
   { id: "dairy", label: "Curd & Drinks" },
 ];
 
+type CartKind = "combo" | "item";
+
+type CartLine = {
+  kind: CartKind;
+  id: string;
+  name: string;
+  price: number;
+  qty: number;
+};
+
+type CartState = Record<string, CartLine>;
+
+function cartKey(kind: CartKind, id: string): string {
+  return `${kind}:${id}`;
+}
+
+function QtyStepper({
+  qty,
+  onDecrease,
+  onIncrease,
+  size = "md",
+}: {
+  qty: number;
+  onDecrease: () => void;
+  onIncrease: () => void;
+  size?: "sm" | "md";
+}) {
+  if (qty === 0) {
+    return (
+      <button
+        type="button"
+        onClick={onIncrease}
+        className={`rounded-xl border-2 border-brand font-extrabold text-brand transition hover:bg-brand-muted ${
+          size === "sm" ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"
+        }`}
+      >
+        ADD +
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 rounded-xl border-2 border-brand bg-brand text-white">
+      <button
+        type="button"
+        onClick={onDecrease}
+        aria-label="Decrease quantity"
+        className={`flex items-center justify-center font-extrabold ${size === "sm" ? "h-7 w-7 text-base" : "h-9 w-9 text-lg"}`}
+      >
+        −
+      </button>
+      <span className={`font-extrabold ${size === "sm" ? "text-xs" : "text-sm"}`}>{qty}</span>
+      <button
+        type="button"
+        onClick={onIncrease}
+        aria-label="Increase quantity"
+        className={`flex items-center justify-center font-extrabold ${size === "sm" ? "h-7 w-7 text-base" : "h-9 w-9 text-lg"}`}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function MenuInner() {
   const sp = useSearchParams();
   const initialMeal = sp.get("meal");
@@ -39,6 +102,7 @@ function MenuInner() {
   const [dietType, setDietType] = useState<(typeof DIET_TABS)[number]["id"]>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [cart, setCart] = useState<CartState>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +129,47 @@ function MenuInner() {
     (c) => (mealType === "all" || c.mealType === mealType) && (dietType === "all" || c.dietType === dietType)
   );
 
+  const getQty = (kind: CartKind, id: string): number => cart[cartKey(kind, id)]?.qty ?? 0;
+
+  const setQty = (kind: CartKind, id: string, name: string, price: number, qty: number) => {
+    setCart((prev) => {
+      const key = cartKey(kind, id);
+      if (qty <= 0) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: { kind, id, name, price, qty } };
+    });
+  };
+
+  const cartLines = useMemo(() => Object.values(cart), [cart]);
+  const cartCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const cartTotal = cartLines.reduce((sum, l) => sum + l.qty * l.price, 0);
+
+  const orderMessage = useMemo(() => {
+    if (cartLines.length === 0) return "";
+    const combosLines = cartLines.filter((l) => l.kind === "combo");
+    const itemLines = cartLines.filter((l) => l.kind === "item");
+    const sections: string[] = [];
+    if (combosLines.length > 0) {
+      sections.push(
+        "*Combos:*\n" + combosLines.map((l) => `• ${l.name} x${l.qty} — ₹${l.price * l.qty}`).join("\n")
+      );
+    }
+    if (itemLines.length > 0) {
+      sections.push(
+        "*Items:*\n" + itemLines.map((l) => `• ${l.name} x${l.qty} — ₹${l.price * l.qty}`).join("\n")
+      );
+    }
+    return (
+      `Hi Gharsip, I'd like to place an order:\n\n` +
+      sections.join("\n\n") +
+      `\n\n*Total: ₹${cartTotal}*\n\nPlease confirm availability and delivery time. Thank you!`
+    );
+  }, [cartLines, cartTotal]);
+
   return (
     <>
       {/* Hero */}
@@ -74,12 +179,12 @@ function MenuInner() {
             🍱 Home-style meals, made fresh daily
           </span>
           <h1 className="mt-4 text-4xl font-extrabold sm:text-5xl">
-            Today&apos;s Menu &amp;<br />
-            <span className="text-green-200">Combo Meals</span>
+            Build Your Order —<br />
+            <span className="text-green-200">Combos &amp; À La Carte</span>
           </h1>
           <p className="mt-4 text-lg text-green-100">
-            Order any combo for the day on WhatsApp — ₹70–₹200 per meal. Or save more with a
-            monthly subscription plan.
+            Add combos or individual items with the + button, then checkout — your order
+            opens on WhatsApp ready to send.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <a
@@ -88,13 +193,13 @@ function MenuInner() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-2xl bg-white px-8 py-4 text-base font-bold text-brand shadow-lg hover:bg-green-50 transition"
             >
-              Order on WhatsApp →
+              Chat on WhatsApp →
             </a>
             <Link
               href="/plans"
               className="inline-flex items-center gap-2 rounded-2xl border-2 border-white/30 px-6 py-4 text-base font-semibold text-white hover:bg-white/10 transition"
             >
-              View Subscription Plans
+              Lunch &amp; Dinner Subscription Plans
             </Link>
           </div>
         </div>
@@ -162,66 +267,64 @@ function MenuInner() {
 
         {/* Combo grid */}
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleCombos.map((combo) => (
-            <div
-              key={combo.id}
-              className="flex flex-col rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="text-base font-extrabold text-zinc-900">{combo.name}</h3>
-                <span
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                    combo.dietType === "nonveg"
-                      ? "bg-red-50 text-red-600"
-                      : "bg-brand-muted text-brand"
-                  }`}
-                >
-                  {combo.dietType === "nonveg" ? "Non-Veg" : "Veg"}
-                </span>
+          {visibleCombos.map((combo) => {
+            const qty = getQty("combo", combo.id);
+            return (
+              <div
+                key={combo.id}
+                className="flex flex-col rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-base font-extrabold text-zinc-900">{combo.name}</h3>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                      combo.dietType === "nonveg"
+                        ? "bg-red-50 text-red-600"
+                        : "bg-brand-muted text-brand"
+                    }`}
+                  >
+                    {combo.dietType === "nonveg" ? "Non-Veg" : "Veg"}
+                  </span>
+                </div>
+                <ul className="mt-2 flex-1 space-y-1 text-sm text-zinc-600">
+                  {combo.items.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold">
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
+                    {combo.energyKcal} kcal
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
+                    {combo.proteinG}g protein
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
+                    {combo.carbsG}g carbs
+                  </span>
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xl font-extrabold text-brand">₹{combo.price}</span>
+                  <QtyStepper
+                    qty={qty}
+                    onIncrease={() => setQty("combo", combo.id, combo.name, combo.price, qty + 1)}
+                    onDecrease={() => setQty("combo", combo.id, combo.name, combo.price, qty - 1)}
+                  />
+                </div>
               </div>
-              <ul className="mt-2 flex-1 space-y-1 text-sm text-zinc-600">
-                {combo.items.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
-              <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold">
-                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
-                  {combo.energyKcal} kcal
-                </span>
-                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
-                  {combo.proteinG}g protein
-                </span>
-                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
-                  {combo.carbsG}g carbs
-                </span>
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-xl font-extrabold text-brand">₹{combo.price}</span>
-                <a
-                  href={buildWhatsAppLink(
-                    `Hi Gharsip, I'd like to order *${combo.name}* (₹${combo.price}) for today.`
-                  )}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-dark transition"
-                >
-                  Order on WhatsApp
-                </a>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
-      {/* Item-level macro reference */}
+      {/* Individual items */}
       {items.length > 0 && (
         <section className="border-t border-zinc-100 bg-zinc-50 py-14">
           <div className="mx-auto max-w-5xl px-4 sm:px-6">
             <div className="text-center">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Macro reference</p>
-              <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Item-by-Item Nutrition</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">À la carte</p>
+              <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Order Items Individually</h2>
               <p className="mt-1 text-sm text-zinc-500">
-                Approximate values per serving — useful if you&apos;re tracking your daily intake.
+                Mix and match — add exactly what you want with the + button.
               </p>
             </div>
 
@@ -234,29 +337,33 @@ function MenuInner() {
                     <h3 className="text-sm font-extrabold uppercase tracking-wide text-zinc-700">
                       {cat.label}
                     </h3>
-                    <div className="mt-3 overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-                      <table className="w-full min-w-[480px] text-left text-sm">
-                        <thead>
-                          <tr className="border-b border-zinc-100 text-xs font-bold uppercase tracking-wide text-zinc-400">
-                            <th className="px-4 py-3">Item</th>
-                            <th className="px-4 py-3">Serving</th>
-                            <th className="px-4 py-3">Energy</th>
-                            <th className="px-4 py-3">Protein</th>
-                            <th className="px-4 py-3">Carbs</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {catItems.map((item) => (
-                            <tr key={item.id} className="border-b border-zinc-50 last:border-0">
-                              <td className="px-4 py-2.5 font-semibold text-zinc-800">{item.name}</td>
-                              <td className="px-4 py-2.5 text-zinc-500">{item.servingDesc}</td>
-                              <td className="px-4 py-2.5 text-zinc-600">{item.energyKcal} kcal</td>
-                              <td className="px-4 py-2.5 text-zinc-600">{item.proteinG}g</td>
-                              <td className="px-4 py-2.5 text-zinc-600">{item.carbsG}g</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mt-3 divide-y divide-zinc-50 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                      {catItems.map((item) => {
+                        const qty = getQty("item", item.id);
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold text-zinc-800">{item.name}</p>
+                              <p className="mt-0.5 text-xs text-zinc-400">
+                                {item.servingDesc} · {item.energyKcal} kcal · {item.proteinG}g protein ·{" "}
+                                {item.carbsG}g carbs
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-extrabold text-brand">₹{item.price}</span>
+                              <QtyStepper
+                                size="sm"
+                                qty={qty}
+                                onIncrease={() => setQty("item", item.id, item.name, item.price, qty + 1)}
+                                onDecrease={() => setQty("item", item.id, item.name, item.price, qty - 1)}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -267,6 +374,37 @@ function MenuInner() {
       )}
 
       <Footer />
+
+      {/* Sticky cart bar */}
+      {cartCount > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] backdrop-blur sm:px-6">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-extrabold text-zinc-900">
+                {cartCount} item{cartCount > 1 ? "s" : ""} · ₹{cartTotal}
+              </p>
+              <button
+                type="button"
+                onClick={() => setCart({})}
+                className="text-xs font-semibold text-zinc-400 hover:text-red-500"
+              >
+                Clear cart
+              </button>
+            </div>
+            <a
+              href={buildWhatsAppLink(orderMessage)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl bg-brand px-5 py-3 text-sm font-extrabold text-white shadow-sm hover:bg-brand-dark transition"
+            >
+              Checkout on WhatsApp →
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom padding so cart bar doesn't overlap content */}
+      {cartCount > 0 && <div className="h-20" />}
     </>
   );
 }

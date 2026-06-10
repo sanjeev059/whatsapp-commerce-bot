@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
-from bookings import mount_bookings
 from menu import mount_menu, seed_menu
 from meal_plans import mount_meal_plans, seed_plans
 from subscriptions import mount_subscriptions
@@ -31,7 +30,6 @@ logger = logging.getLogger("gharsip_api")
 
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ.get("DB_NAME", "gharsip_store")
-bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
 otp_coll_name = os.environ.get("OTP_COLLECTION", "gharsip_email_otps")
 users_coll_name = os.environ.get("USERS_COLLECTION", "gharsip_users")
@@ -42,7 +40,6 @@ subscriptions_coll_name = os.environ.get("SUBSCRIPTIONS_COLLECTION", "gharsip_su
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
-bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
 otp_coll = db[otp_coll_name]
 users_coll = db[users_coll_name]
@@ -107,7 +104,6 @@ mount_subscriptions(
     meta_coll=meta_coll,
     rate_limit=rate_limit,
 )
-mount_bookings(api, bookings_coll=bookings_coll, meta_coll=meta_coll, rate_limit=rate_limit)
 
 
 @asynccontextmanager
@@ -115,16 +111,14 @@ async def lifespan(app: FastAPI):
     await subscriptions_coll.create_index("id", unique=True)
     await subscriptions_coll.create_index([("createdAt", -1)])
     await subscriptions_coll.create_index("phoneDigits")
-    await bookings_coll.create_index("id", unique=True)
-    await bookings_coll.create_index([("createdAt", -1)])
     await menu_items_coll.create_index("id", unique=True)
     await combos_coll.create_index("id", unique=True)
     await plans_coll.create_index("id", unique=True)
     await seed_menu(menu_items_coll, combos_coll)
     await seed_plans(plans_coll)
     logger.info(
-        "Mongo indexes ready — DB=%s subscriptions=%s plans=%s bookings=%s",
-        db_name, subscriptions_coll_name, plans_coll_name, bookings_coll_name,
+        "Mongo indexes ready — DB=%s subscriptions=%s plans=%s",
+        db_name, subscriptions_coll_name, plans_coll_name,
     )
     yield
     client.close()
@@ -148,17 +142,11 @@ async def admin_stats():
     active_subs = await subscriptions_coll.count_documents({"status": "active"})
     pending_subs = await subscriptions_coll.count_documents({"status": "pending_confirmation"})
     today_subs = await subscriptions_coll.count_documents({"createdAt": {"$gte": today}})
-    all_bookings = await bookings_coll.count_documents({})
-    new_bookings = await bookings_coll.count_documents({"status": "new"})
-    today_bookings = await bookings_coll.count_documents({"createdAt": {"$gte": today}})
     return {
         "totalSubscriptions": all_subs,
         "activeSubscriptions": active_subs,
         "pendingSubscriptions": pending_subs,
         "todaySubscriptions": today_subs,
-        "totalBookings": all_bookings,
-        "newBookings": new_bookings,
-        "todayBookings": today_bookings,
     }
 
 

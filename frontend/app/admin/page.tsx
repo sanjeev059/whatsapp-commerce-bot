@@ -139,9 +139,6 @@ export default function AdminPage() {
           >
             {loading ? "Refreshing…" : "Refresh"}
           </button>
-          <Link href="/admin/bookings" className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-bold">
-            Bookings Admin
-          </Link>
           <button type="button" className="text-sm font-bold text-red-600" onClick={lockout}>
             Lock
           </button>

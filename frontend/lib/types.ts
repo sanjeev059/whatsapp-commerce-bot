@@ -7,6 +7,7 @@ export type MenuItem = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  price: number;
 };
 
 export type Combo = {

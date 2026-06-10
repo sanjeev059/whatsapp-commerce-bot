@@ -7,7 +7,6 @@ import { buildWhatsAppLink } from "@/lib/whatsapp";
 const NAV_LINKS = [
   { href: "/menu", label: "Today's Menu" },
   { href: "/plans", label: "Subscription Plans" },
-  { href: "/saree", label: "Saree Services" },
   { href: "/track", label: "Track Subscription" },
 ];
 
@@ -18,7 +17,7 @@ export function Navbar() {
     <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/96 backdrop-blur-md shadow-sm">
       {/* Announcement bar */}
       <div className="bg-brand py-1.5 text-center text-[11px] font-semibold text-white tracking-wide">
-        🍱 Home-style meals &amp; monthly tiffin subscriptions — order on WhatsApp
+        🍱 Home-style meals — order à la carte or subscribe for breakfast, lunch &amp; dinner
       </div>
 
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6">

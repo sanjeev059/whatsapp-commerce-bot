@@ -6,7 +6,7 @@ import { buildWhatsAppLink } from "@/lib/whatsapp";
 const reviews = [
   { name: "Ananya S.", city: "Bangalore", rating: 5, text: "The lunch + dinner subscription has been a lifesaver. Food tastes home-made and the macros help me stay on track." },
   { name: "Rohan K.", city: "Mysuru", rating: 5, text: "Ordered the chicken curry meal on WhatsApp — quick reply, fresh food, delivered hot. Subscribed to the full-day plan now." },
-  { name: "Priya M.", city: "Varthur", rating: 5, text: "Got pico + fall done on 3 sarees. Home pickup was so convenient and the finish is beautiful. Will be back for blouse stitching!" },
+  { name: "Priya M.", city: "Varthur", rating: 5, text: "Love that I can pick individual items and combos on the menu page, add them to my order and send everything on WhatsApp in one go. So convenient!" },
   { name: "Nikita P.", city: "Hubli", rating: 5, text: "The Fitness/High-Protein plan fits perfectly with my gym routine. Portion sizes and protein numbers are spot on." },
 ];
 
@@ -106,21 +106,21 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── 3 Service cards ──────────────────────────────────────────────── */}
+      {/* ── Service cards ─────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
         <div className="text-center mb-10">
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">What we offer</p>
-          <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">One platform, three services</h2>
+          <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Two ways to eat well</h2>
         </div>
-        <div className="grid gap-6 sm:grid-cols-3">
+        <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-2">
           {[
             {
               icon: "🍛",
               title: "Daily Meals",
-              desc: "Browse today's combo meals — breakfast, lunch and dinner — with macros for each. Order any day on WhatsApp.",
+              desc: "Browse today's combo meals and individual items — breakfast, lunch and dinner — with macros for each. Add to your order and checkout on WhatsApp.",
               cta: "View Menu",
               href: "/menu",
-              badge: "₹70–₹200 per meal",
+              badge: "₹15–₹200 per item",
             },
             {
               icon: "📅",
@@ -130,14 +130,6 @@ export default async function HomePage() {
               href: "/plans",
               badge: "Pause anytime",
               featured: true,
-            },
-            {
-              icon: "✂️",
-              title: "Saree Services",
-              desc: "Pico, fall, blouse stitching, embroidery & bridal work at your doorstep. Home pickup & delivery in Varthur, Balagere, Whitefield.",
-              cta: "Book Now",
-              href: "/saree",
-              badge: "Free home pickup",
             },
           ].map((s) => (
             <div

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import { ChatWidget } from "@/components/ChatWidget";
 import { Navbar } from "@/components/Navbar";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 
@@ -12,9 +11,9 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Gharsip · Home-Style Meals & Tiffin Subscriptions",
+  title: "Gharsip · Home-Style Meals & Subscriptions",
   description:
-    "Fresh home-style meals delivered daily. Browse today's combos, subscribe to a monthly tiffin plan, and order on WhatsApp.",
+    "Fresh home-style meals delivered daily. Browse today's menu and combos, subscribe to a daily breakfast, lunch or dinner plan, and order on WhatsApp.",
 };
 
 export default function RootLayout({
@@ -28,7 +27,6 @@ export default function RootLayout({
         <Navbar />
         <main>{children}</main>
         <WhatsAppButton />
-        <ChatWidget />
       </body>
     </html>
   );

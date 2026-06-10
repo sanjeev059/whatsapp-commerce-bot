@@ -8,7 +8,7 @@ export function Footer() {
     <footer className="mt-16 border-t border-zinc-200 bg-zinc-50">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
 
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
 
           {/* Brand */}
           <div>
@@ -20,7 +20,7 @@ export function Footer() {
               </div>
             </div>
             <p className="mt-3 text-sm text-zinc-500">
-              Home-style meals &amp; monthly tiffin subscriptions, delivered fresh. Saree &amp; blouse services at your doorstep in Bengaluru.
+              Home-style meals, combos &amp; daily breakfast/lunch/dinner subscriptions, delivered fresh to your doorstep in Bengaluru.
             </p>
             <p className="mt-1.5 text-xs font-semibold text-brand">Varthur · Balagere · Whitefield · Marathahalli</p>
             <a
@@ -48,25 +48,6 @@ export function Footer() {
                 { href: "/track",                      label: "Track Subscription" },
               ].map((l) => (
                 <li key={l.href}>
-                  <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Saree services */}
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Saree Services</h3>
-            <ul className="mt-4 space-y-2.5">
-              {[
-                { href: "/saree",             label: "All Services"       },
-                { href: "/saree#pico",        label: "Pico Work"          },
-                { href: "/saree#fall",        label: "Fall Work"          },
-                { href: "/saree#blouse",      label: "Blouse Stitching"   },
-                { href: "/saree#packages",    label: "Bridal Packages"    },
-                { href: "/saree#booking",     label: "Book Home Pickup"   },
-              ].map((l) => (
-                <li key={l.label}>
                   <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
                 </li>
               ))}

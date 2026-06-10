@@ -1,4 +1,4 @@
-# Gharsip Custom Prints backend (FastAPI) — Deploy on Render (Blueprint).
+# Gharsip Meal Subscriptions backend (FastAPI) — Deploy on Render (Blueprint).
 services:
   - type: web
     name: gharsip-backend
@@ -20,8 +20,6 @@ services:
         sync: false # long random Bearer secret — duplicate on Vercel (server-side only)
       - key: CORS_ORIGINS
         sync: false # comma list: https://your-app.vercel.app,https://your-domain.com
-      # Optional overrides (defaults: gharsip_orders, gharsip_meta)
-      - key: ORDERS_COLLECTION
-        sync: false # e.g. prints_orders if you migrate from the old Prints-only collection name
+      # Optional overrides (defaults shown in backend/.env.example)
       - key: META_COLLECTION
         sync: false

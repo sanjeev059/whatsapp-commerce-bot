@@ -16,10 +16,10 @@ export default function NotFound() {
           Back to Home
         </Link>
         <Link
-          href="/shop"
+          href="/menu"
           className="rounded-2xl border border-zinc-200 px-6 py-3 text-sm font-extrabold text-zinc-700 hover:bg-zinc-50"
         >
-          Browse Designs
+          Today&apos;s Menu
         </Link>
       </div>
     </div>

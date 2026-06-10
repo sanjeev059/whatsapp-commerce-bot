@@ -19,8 +19,7 @@ function verifyPin(req: NextRequest) {
   return pin === expected;
 }
 
-/** Proxies GET /api/admin/orders — Bearer never sent to browser. */
-export async function GET(req: NextRequest) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   if (!verifyPin(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -33,17 +32,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const r = await fetch(`${base}/api/admin/orders`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
+  const { id } = await ctx.params;
+  const body = await req.text();
+
+  const r = await fetch(`${base}/api/admin/subscriptions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body,
   });
 
   const text = await r.text();
-  if (!r.ok) {
-    return new NextResponse(text || r.statusText, { status: r.status });
-  }
-  return new NextResponse(text, {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
+  return new NextResponse(text || r.statusText, {
+    status: r.status,
+    headers: { "Content-Type": r.headers.get("content-type") || "application/json" },
   });
 }

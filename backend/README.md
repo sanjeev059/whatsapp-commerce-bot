@@ -1,13 +1,16 @@
-# Gharsip Custom Prints — API
+# Gharsip Meal Subscriptions — API
 
 - **Runtime:** FastAPI (`server.py`), Motor + MongoDB
-- **Purpose:** Persist **custom-print tee** orders aligned with `frontend/lib/pricing.ts`
+- **Purpose:** Serve the meal menu/combos, subscription plans, and customer subscriptions
 - **Entry:** `uvicorn server:app --host 0.0.0.0 --port $PORT`
-- **Config:** `.env` in this folder (`MONGO_URL`, `ADMIN_API_TOKEN`, optional `ORDERS_COLLECTION`, …) — copy from **`../DEPLOY_PRINTS.md`**
+- **Config:** `.env` in this folder (`MONGO_URL`, `ADMIN_API_TOKEN`, optional `SUBSCRIPTIONS_COLLECTION`, …) — copy from **`../DEPLOY_PRINTS.md`**
 
 Core modules:
 
 | File | Role |
 |------|------|
 | `server.py` | App, CORS, rate limiting, lifespan / indexes |
-| `orders.py` | `POST /api/orders`, `GET /api/orders/{id}`, admin list/patch |
+| `menu.py` | `GET /api/menu/items`, `GET /api/menu/combos` |
+| `meal_plans.py` | `GET /api/plans`, `GET /api/plans/{id}` |
+| `subscriptions.py` | `POST /api/subscriptions`, `GET /api/subscriptions`, admin list/patch |
+| `bookings.py` | Saree service bookings (unchanged) |

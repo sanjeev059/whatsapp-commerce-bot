@@ -1,54 +1,71 @@
-import type { ProductTypeId } from "./pricing";
-
-export type PreviewSide = "front" | "back";
-
-export type CartLine = {
-  /** stable client id */
-  lineId: string;
-  designId: string | null;
-  designName: string | null;
-  designUrl: string | null;
-  productType: ProductTypeId;
-  colorId: string;
-  colorLabel: string;
-  colorHex: string;
-  size: string;
-  qty: number;
-  previewSide: PreviewSide;
-  /** unit price captured at add time */
-  unitPrice: number;
-};
-
-export type StoredOrder = {
+export type MenuItem = {
   id: string;
-  lines: CartLine[];
-  customer: {
-    name: string;
-    phone: string;
-    email: string;
-    address1: string;
-    address2?: string;
-    city: string;
-    state: string;
-    pincode: string;
-  };
-  coupon?: string;
-  subtotal: number;
-  delivery: number;
-  total: number;
-  paymentId?: string;
-  paymentStatus: "pending" | "paid" | "failed";
-  createdAt: string;
-  timeline: OrderTimelineStep[];
-  tracking?: string;
-  qikinkId?: string;
+  name: string;
+  category: "breakfast" | "rice" | "roti" | "nonveg_curry" | "dairy" | string;
+  servingDesc: string;
+  energyKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
 };
 
-export type OrderTimelineStep = {
-  key: string;
-  label: string;
-  done: boolean;
-  current?: boolean;
-  at?: string;
-  detail?: string;
+export type Combo = {
+  id: string;
+  name: string;
+  mealType: "breakfast" | "lunch_dinner" | string;
+  dietType: "veg" | "nonveg" | string;
+  items: string[];
+  energyKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  price: number;
+};
+
+export type SubscriptionPlan = {
+  id: string;
+  name: string;
+  description: string;
+  mealTypes: string[];
+  dietType: "veg" | "nonveg" | string;
+  durationDays: number;
+  dailyMacros: {
+    energyKcal: number;
+    proteinG: number;
+    carbsG: number;
+  };
+  priceMonthly: number;
+};
+
+export type SubscriptionCustomer = {
+  name: string;
+  phone: string;
+  email: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+};
+
+export type DeliveryLogEntry = {
+  date: string;
+  status: string;
+  note?: string;
+};
+
+export type Subscription = {
+  id: string;
+  planId: string;
+  planName: string;
+  priceMonthly: number;
+  customer: SubscriptionCustomer;
+  phoneDigits: string;
+  dietPreference?: string;
+  startDate: string;
+  notes?: string;
+  status: "pending_confirmation" | "active" | "paused" | "cancelled" | "completed";
+  paymentStatus: "pending" | "paid" | "failed";
+  deliveryLog: DeliveryLogEntry[];
+  createdAt: string;
 };

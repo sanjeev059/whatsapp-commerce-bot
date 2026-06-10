@@ -4,150 +4,144 @@ import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
-import { loadOrder } from "@/lib/orders";
-import { fetchOrderFromBackend, isGharsipApiEnabled } from "@/lib/gharsipApi";
-import type { StoredOrder } from "@/lib/types";
+import { fetchSubscriptions, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import type { Subscription } from "@/lib/types";
+
+const STATUS_LABELS: Record<Subscription["status"], string> = {
+  pending_confirmation: "Pending Confirmation",
+  active: "Active",
+  paused: "Paused",
+  cancelled: "Cancelled",
+  completed: "Completed",
+};
+
+const STATUS_STYLES: Record<Subscription["status"], string> = {
+  pending_confirmation: "bg-amber-50 text-amber-700",
+  active: "bg-brand-muted text-brand",
+  paused: "bg-zinc-100 text-zinc-600",
+  cancelled: "bg-red-50 text-red-600",
+  completed: "bg-zinc-100 text-zinc-600",
+};
+
+const PAYMENT_LABELS: Record<Subscription["paymentStatus"], string> = {
+  pending: "Payment Pending",
+  paid: "Paid",
+  failed: "Payment Failed",
+};
 
 function TrackInner() {
   const sp = useSearchParams();
-  const startOrder = sp.get("order") || "";
-  const [orderId, setOrderId] = useState(startOrder);
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(sp.get("phone") || "");
   const [msg, setMsg] = useState<string | null>(null);
-  const [found, setFound] = useState<StoredOrder | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const doLookup = async (idRaw: string, phoneRaw: string) => {
-    const idNorm = idRaw.replace(/^#/, "").trim();
-    const p10 = phoneRaw.replace(/\D/g, "").slice(-10);
-
-    if (idNorm.length < 5 || p10.length !== 10) {
-      setMsg("Enter order number and a valid phone.");
-      setFound(null);
-      return;
-    }
-
-    if (isGharsipApiEnabled()) {
-      try {
-        const o = await fetchOrderFromBackend(idNorm, phoneRaw);
-        if (!o) {
-          setFound(null);
-          setMsg("Order not found — check the ID and phone used at checkout.");
-          return;
-        }
-        setMsg(null);
-        setFound(o);
-      } catch (err) {
-        setFound(null);
-        setMsg(err instanceof Error ? err.message : "Lookup failed.");
-      }
-      return;
-    }
-
-    const o = loadOrder(idNorm);
-    if (!o) {
-      setFound(null);
-      setMsg(
-        "Order not found in this browser. Add NEXT_PUBLIC_BACKEND_URL to pull orders from the server."
-      );
-      return;
-    }
-    const op = o.customer.phone.replace(/\D/g, "");
-    if (p10.length < 10 || op.slice(-10) !== p10) {
-      setMsg("Phone doesn't match this order.");
-      setFound(null);
-      return;
-    }
-    setMsg(null);
-    setFound(o);
-  };
+  const [subs, setSubs] = useState<Subscription[] | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const lookup = async (e: FormEvent) => {
     e.preventDefault();
-    await doLookup(orderId, phone);
-  };
+    const p10 = phone.replace(/\D/g, "").slice(-10);
+    if (p10.length !== 10) {
+      setMsg("Enter a valid 10-digit phone number.");
+      setSubs(null);
+      return;
+    }
 
-  const refresh = async () => {
-    if (!found) return;
-    setRefreshing(true);
-    await doLookup(orderId, phone);
-    setRefreshing(false);
-  };
+    if (!isGharsipApiEnabled()) {
+      setMsg("Tracking is being set up. Message us on WhatsApp for your subscription status.");
+      setSubs(null);
+      return;
+    }
 
-  const o = found;
+    setLoading(true);
+    try {
+      const result = await fetchSubscriptions(phone);
+      if (result.length === 0) {
+        setSubs(null);
+        setMsg("No subscriptions found for this phone number.");
+        return;
+      }
+      setMsg(null);
+      setSubs(result);
+    } catch (err) {
+      setSubs(null);
+      setMsg(err instanceof Error ? err.message : "Lookup failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-xl px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-extrabold">Track order</h1>
-      <p className="text-sm text-zinc-600">Enter order number and phone.</p>
+      <h1 className="text-3xl font-extrabold text-zinc-900">Track Subscription</h1>
+      <p className="text-sm text-zinc-600">Enter the phone number used to subscribe.</p>
       <form onSubmit={lookup} className="mt-6 flex flex-col gap-3">
-        <input
-          className="rounded-xl border border-zinc-300 px-4 py-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-brand"
-          placeholder="GH12345"
-          value={orderId}
-          onChange={(e) => setOrderId(e.target.value)}
-        />
         <input
           required
           className="rounded-xl border border-zinc-300 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-brand"
-          placeholder="Phone number"
+          placeholder="10-digit phone number"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
+          maxLength={10}
+          inputMode="numeric"
         />
-        <button type="submit" className="rounded-2xl bg-brand py-3 font-extrabold text-white hover:bg-brand-dark">
-          Track
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded-2xl bg-brand py-3 font-extrabold text-white hover:bg-brand-dark disabled:opacity-50"
+        >
+          {loading ? "Looking up…" : "Track"}
         </button>
       </form>
       {msg ? <p className="mt-4 text-sm text-amber-800">{msg}</p> : null}
-      {o ? (
-        <div className="mt-10">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-bold text-zinc-500">Order #{o.id}</p>
-            <button
-              onClick={refresh}
-              disabled={refreshing}
-              className="flex items-center gap-1 text-xs font-bold text-brand hover:underline disabled:opacity-50"
-            >
-              {refreshing ? "Refreshing…" : "↻ Refresh status"}
-            </button>
-          </div>
-          <ol className="relative mt-4 space-y-6 border-l-2 border-brand-muted pl-6">
-            {o.timeline.map((step) => (
-              <li key={step.key} className="relative">
-                <span
-                  className={`absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                    step.done ? "bg-brand text-white" : step.current ? "bg-amber-400 text-black" : "bg-zinc-200 text-zinc-500"
-                  }`}
-                >
-                  {step.done ? "✓" : step.current ? "…" : ""}
+
+      {subs ? (
+        <div className="mt-10 space-y-5">
+          {subs.map((sub) => (
+            <div key={sub.id} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold text-zinc-400">#{sub.id}</p>
+                  <h2 className="text-lg font-extrabold text-zinc-900">{sub.planName}</h2>
+                </div>
+                <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${STATUS_STYLES[sub.status]}`}>
+                  {STATUS_LABELS[sub.status]}
                 </span>
-                <p className="font-bold text-zinc-900">{step.label}</p>
-                {step.at ? (
-                  <p className="text-xs text-zinc-500">{new Date(step.at).toLocaleString()}</p>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <p className="text-zinc-500">
+                  Start date: <span className="font-semibold text-zinc-800">{sub.startDate}</span>
+                </p>
+                <p className="text-zinc-500">
+                  Plan: <span className="font-semibold text-zinc-800">₹{sub.priceMonthly.toLocaleString("en-IN")}/mo</span>
+                </p>
+                <p className="text-zinc-500">
+                  Payment: <span className="font-semibold text-zinc-800">{PAYMENT_LABELS[sub.paymentStatus]}</span>
+                </p>
+                {sub.dietPreference ? (
+                  <p className="text-zinc-500">
+                    Diet: <span className="font-semibold text-zinc-800 capitalize">{sub.dietPreference}</span>
+                  </p>
                 ) : null}
-                {step.detail ? <p className="text-xs text-zinc-600">{step.detail}</p> : null}
-              </li>
-            ))}
-          </ol>
-          {o.tracking ? (
-            <a
-              href={
-                o.tracking.startsWith("http") ? o.tracking : `https://www.google.com/search?q=${o.tracking}`
-              }
-              target="_blank"
-              rel="noreferrer"
-              className="mt-6 inline-block text-sm font-bold text-brand underline"
-            >
-              Open courier tracking
-            </a>
-          ) : null}
-          {o.qikinkId ? (
-            <p className="mt-2 font-mono text-xs text-zinc-500">
-              Print partner ref: <span>{o.qikinkId}</span>
-            </p>
-          ) : null}
+              </div>
+
+              {sub.deliveryLog.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-zinc-400">Delivery log</p>
+                  <ul className="mt-2 space-y-1.5 text-sm">
+                    {sub.deliveryLog.map((entry, i) => (
+                      <li key={`${entry.date}-${i}`} className="flex items-center justify-between">
+                        <span className="text-zinc-700">{entry.date}</span>
+                        <span className="font-semibold text-zinc-900">{entry.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       ) : null}
+
       <Link href="/" className="mt-10 inline-block text-sm font-bold text-zinc-500 hover:text-brand">
         ← Home
       </Link>

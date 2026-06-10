@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import { CartProvider } from "@/lib/CartContext";
 import { ChatWidget } from "@/components/ChatWidget";
 import { Navbar } from "@/components/Navbar";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
@@ -13,9 +12,9 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Gharsip Custom Prints · Wear Your Vibe",
+  title: "Gharsip · Home-Style Meals & Tiffin Subscriptions",
   description:
-    "Design your perfect tee. Pick a design, pick a colour, preview live — order online.",
+    "Fresh home-style meals delivered daily. Browse today's combos, subscribe to a monthly tiffin plan, and order on WhatsApp.",
 };
 
 export default function RootLayout({
@@ -26,12 +25,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={poppins.variable}>
       <body className="min-h-[100dvh] bg-white text-zinc-900 antialiased font-sans">
-        <CartProvider>
-          <Navbar />
-          <main>{children}</main>
-          <WhatsAppButton />
-          <ChatWidget />
-        </CartProvider>
+        <Navbar />
+        <main>{children}</main>
+        <WhatsAppButton />
+        <ChatWidget />
       </body>
     </html>
   );

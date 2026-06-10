@@ -1,4 +1,4 @@
-"""Gharsip Custom Prints API — FastAPI + MongoDB (orders only)."""
+"""Gharsip Meal Subscriptions API — FastAPI + MongoDB."""
 
 from __future__ import annotations
 
@@ -16,10 +16,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
 from bookings import mount_bookings
-from orders import mount_orders
+from menu import mount_menu, seed_menu
+from meal_plans import mount_meal_plans, seed_plans
+from subscriptions import mount_subscriptions
 from email_otp import mount_email_otp
 from users import mount_users
-from products import mount_products
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
@@ -30,21 +31,25 @@ logger = logging.getLogger("gharsip_api")
 
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ.get("DB_NAME", "gharsip_store")
-orders_coll_name = os.environ.get("ORDERS_COLLECTION", "gharsip_orders")
 bookings_coll_name = os.environ.get("BOOKINGS_COLLECTION", "gharsip_bookings")
 meta_coll_name = os.environ.get("META_COLLECTION", "gharsip_meta")
 otp_coll_name = os.environ.get("OTP_COLLECTION", "gharsip_email_otps")
 users_coll_name = os.environ.get("USERS_COLLECTION", "gharsip_users")
-products_coll_name = os.environ.get("PRODUCTS_COLLECTION", "gharsip_products")
+menu_items_coll_name = os.environ.get("MENU_ITEMS_COLLECTION", "gharsip_menu_items")
+combos_coll_name = os.environ.get("COMBOS_COLLECTION", "gharsip_combos")
+plans_coll_name = os.environ.get("PLANS_COLLECTION", "gharsip_plans")
+subscriptions_coll_name = os.environ.get("SUBSCRIPTIONS_COLLECTION", "gharsip_subscriptions")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
-orders_coll = db[orders_coll_name]
 bookings_coll = db[bookings_coll_name]
 meta_coll = db[meta_coll_name]
 otp_coll = db[otp_coll_name]
 users_coll = db[users_coll_name]
-products_coll = db[products_coll_name]
+menu_items_coll = db[menu_items_coll_name]
+combos_coll = db[combos_coll_name]
+plans_coll = db[plans_coll_name]
+subscriptions_coll = db[subscriptions_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
@@ -87,59 +92,73 @@ api = APIRouter(prefix="/api")
 @api.get("/")
 async def api_root():
     return {
-        "app": os.environ.get("PLATFORM_NAME", "Gharsip Custom Prints API"),
-        "version": "2.0",
-        "collections": {"orders": orders_coll_name, "meta": meta_coll_name},
+        "app": os.environ.get("PLATFORM_NAME", "Gharsip Meal Subscriptions API"),
+        "version": "3.0",
+        "collections": {"subscriptions": subscriptions_coll_name, "plans": plans_coll_name, "meta": meta_coll_name},
     }
 
 
-mount_orders(api, orders_coll=orders_coll, meta_coll=meta_coll, rate_limit=rate_limit)
+mount_menu(api, menu_items_coll=menu_items_coll, combos_coll=combos_coll)
+mount_meal_plans(api, plans_coll=plans_coll)
+mount_subscriptions(
+    api,
+    subscriptions_coll=subscriptions_coll,
+    plans_coll=plans_coll,
+    meta_coll=meta_coll,
+    rate_limit=rate_limit,
+)
 mount_bookings(api, bookings_coll=bookings_coll, meta_coll=meta_coll, rate_limit=rate_limit)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await orders_coll.create_index("id", unique=True)
-    await orders_coll.create_index([("createdAt", -1)])
+    await subscriptions_coll.create_index("id", unique=True)
+    await subscriptions_coll.create_index([("createdAt", -1)])
+    await subscriptions_coll.create_index("phoneDigits")
     await bookings_coll.create_index("id", unique=True)
     await bookings_coll.create_index([("createdAt", -1)])
-    await products_coll.create_index("id", unique=True)
-    await products_coll.create_index([("category", 1), ("active", 1)])
-    logger.info("Mongo indexes ready — DB=%s orders=%s bookings=%s products=%s", db_name, orders_coll_name, bookings_coll_name, products_coll_name)
+    await menu_items_coll.create_index("id", unique=True)
+    await combos_coll.create_index("id", unique=True)
+    await plans_coll.create_index("id", unique=True)
+    await seed_menu(menu_items_coll, combos_coll)
+    await seed_plans(plans_coll)
+    logger.info(
+        "Mongo indexes ready — DB=%s subscriptions=%s plans=%s bookings=%s",
+        db_name, subscriptions_coll_name, plans_coll_name, bookings_coll_name,
+    )
     yield
     client.close()
 
 
 app = FastAPI(
-    title="Gharsip Custom Prints API",
-    version="2.0",
+    title="Gharsip Meal Subscriptions API",
+    version="3.0",
     lifespan=lifespan,
 )
 
 mount_email_otp(api, otp_collection=otp_coll)
 mount_users(api, users_collection=users_coll)
-mount_products(api, products_coll=products_coll, rate_limit=rate_limit)
 
 
 @api.get("/admin/stats")
 async def admin_stats():
     from datetime import date
     today = date.today().isoformat()
-    all_orders = await orders_coll.count_documents({})
+    all_subs = await subscriptions_coll.count_documents({})
+    active_subs = await subscriptions_coll.count_documents({"status": "active"})
+    pending_subs = await subscriptions_coll.count_documents({"status": "pending_confirmation"})
+    today_subs = await subscriptions_coll.count_documents({"createdAt": {"$gte": today}})
     all_bookings = await bookings_coll.count_documents({})
-    pending_orders = await orders_coll.count_documents({"status": "pending"})
     new_bookings = await bookings_coll.count_documents({"status": "new"})
-    today_orders = await orders_coll.count_documents({"createdAt": {"$gte": today}})
     today_bookings = await bookings_coll.count_documents({"createdAt": {"$gte": today}})
-    total_products = await products_coll.count_documents({"active": True})
     return {
-        "totalOrders": all_orders,
+        "totalSubscriptions": all_subs,
+        "activeSubscriptions": active_subs,
+        "pendingSubscriptions": pending_subs,
+        "todaySubscriptions": today_subs,
         "totalBookings": all_bookings,
-        "pendingOrders": pending_orders,
         "newBookings": new_bookings,
-        "todayOrders": today_orders,
         "todayBookings": today_bookings,
-        "totalProducts": total_products,
     }
 
 

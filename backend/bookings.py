@@ -10,13 +10,20 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pydantic import BaseModel, ConfigDict
 from pymongo import ReturnDocument
 
-from orders import resolve_admin_token
+import os
 
 _bearer = HTTPBearer(auto_error=False)
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def resolve_admin_token() -> str:
+    return (
+        os.environ.get("ADMIN_API_TOKEN", "").strip()
+        or os.environ.get("PRINTS_ADMIN_TOKEN", "").strip()
+    )
 
 
 class BookingIn(BaseModel):

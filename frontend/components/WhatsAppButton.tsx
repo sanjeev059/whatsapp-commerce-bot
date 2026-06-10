@@ -1,11 +1,11 @@
 "use client";
 
-const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "919999999999";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 export function WhatsAppButton() {
   return (
     <a
-      href={`https://wa.me/${WA_NUMBER}?text=Hi%20Gharsip%2C%20I%20need%20help`}
+      href={buildWhatsAppLink("Hi Gharsip, I'd like to order a meal for today.")}
       target="_blank"
       rel="noopener noreferrer"
       className="fixed bottom-24 left-4 z-40 flex h-13 w-13 items-center justify-center rounded-full shadow-lg transition hover:scale-110 sm:left-6"

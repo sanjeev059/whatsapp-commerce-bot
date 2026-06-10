@@ -1,29 +1,30 @@
 import Link from "next/link";
-import Image from "next/image";
 import { Footer } from "@/components/Footer";
-import { DesignCard } from "@/components/DesignCard";
-import { ReadyProductCard } from "@/components/ReadyProductCard";
-import { DESIGNS, CATEGORY_TABS } from "@/lib/designs";
-import { READY_PRODUCTS } from "@/lib/products";
-
-const popular = DESIGNS.filter((d) => d.tag === "Popular").slice(0, 6);
-const featuredProducts = READY_PRODUCTS.filter((p) => p.badge).slice(0, 4);
+import { getCombos, getPlans, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const reviews = [
-  { name: "Ananya S.", city: "Bangalore", rating: 5, text: "The live preview is amazing — exactly what I ordered. Cotton quality is excellent and delivery was super quick!" },
-  { name: "Rohan K.", city: "Mysuru",    rating: 5, text: "The Kannada graphic popped perfectly on the black tee. Premium feel, fast delivery — already ordered 3 more." },
-  { name: "Priya M.", city: "Varthur",   rating: 5, text: "Got pico + fall done on 3 sarees. Home pickup was so convenient and the finish is beautiful. Will be back for blouse stitching!" },
-  { name: "Nikita P.", city: "Hubli",    rating: 5, text: "Quick delivery in under 5 days. Already ordered a second tee for my brother. Highly recommended!" },
+  { name: "Ananya S.", city: "Bangalore", rating: 5, text: "The lunch + dinner subscription has been a lifesaver. Food tastes home-made and the macros help me stay on track." },
+  { name: "Rohan K.", city: "Mysuru", rating: 5, text: "Ordered the chicken curry meal on WhatsApp — quick reply, fresh food, delivered hot. Subscribed to the full-day plan now." },
+  { name: "Priya M.", city: "Varthur", rating: 5, text: "Got pico + fall done on 3 sarees. Home pickup was so convenient and the finish is beautiful. Will be back for blouse stitching!" },
+  { name: "Nikita P.", city: "Hubli", rating: 5, text: "The Fitness/High-Protein plan fits perfectly with my gym routine. Portion sizes and protein numbers are spot on." },
 ];
 
 const stats = [
-  { value: "2,000+", label: "Orders delivered" },
-  { value: "50+",    label: "Unique designs"   },
-  { value: "4.9★",   label: "Average rating"   },
-  { value: "4–5",    label: "Days delivery"     },
+  { value: "150+", label: "Meals delivered daily" },
+  { value: "7",    label: "Subscription plans"   },
+  { value: "4.9★", label: "Average rating"        },
+  { value: "₹70+", label: "Starting per meal"     },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [combos, plans] = isGharsipApiEnabled()
+    ? await Promise.all([getCombos(), getPlans()])
+    : [[], []];
+
+  const featuredCombos = combos.slice(0, 3);
+  const featuredPlans = plans.slice(0, 3);
+
   return (
     <>
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
@@ -35,29 +36,32 @@ export default function HomePage() {
           <div className="flex flex-col justify-center">
             <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-brand/20 bg-brand-muted px-3 py-1 text-xs font-bold text-brand">
               <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-              Wear Your Vibe · Made in Bengaluru
+              Home-Style Meals · Made in Bengaluru
             </span>
             <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-zinc-900 sm:text-5xl lg:text-6xl">
-              Design Your Tee.
+              Fresh Home-Cooked Meals.
               <br />
-              <span className="text-brand">Style Your Saree.</span>
+              <span className="text-brand">Every Single Day.</span>
             </h1>
             <p className="mt-5 max-w-lg text-lg text-zinc-500">
-              Custom t-shirts delivered across India. Saree pico, fall &amp; blouse services at your doorstep in Bengaluru — home pickup included.
+              Order today&apos;s meal on WhatsApp, or subscribe to a monthly plan with daily
+              protein, carbs &amp; energy targets — delivered straight to your door.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/shop"
+              <a
+                href={buildWhatsAppLink("Hi Gharsip, I'd like to order a meal for today.")}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark"
               >
-                Shop T-Shirts
+                Order on WhatsApp
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-              </Link>
+              </a>
               <Link
-                href="/saree"
+                href="/plans"
                 className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-6 py-4 text-base font-semibold text-zinc-700 shadow-sm hover:border-brand hover:text-brand transition"
               >
-                Book Saree Service
+                View Subscription Plans
               </Link>
             </div>
             <div className="mt-8 flex items-center gap-3">
@@ -67,22 +71,36 @@ export default function HomePage() {
                 ))}
               </div>
               <p className="text-sm text-zinc-500">
-                <span className="font-bold text-zinc-800">2,000+ customers</span> already wearing Gharsip
+                <span className="font-bold text-zinc-800">150+ meals</span> delivered every day
               </p>
             </div>
           </div>
 
           <div className="relative flex items-center justify-center">
-            <div className="relative aspect-[9/10] w-full max-w-md rounded-[2.5rem] bg-gradient-to-br from-zinc-50 to-zinc-100 p-6 shadow-2xl ring-1 ring-black/5">
-              <Image src="/hero-preview.svg" alt="Gharsip custom t-shirt preview" fill className="object-contain p-2" priority />
+            <div className="relative flex aspect-[9/10] w-full max-w-md flex-col items-center justify-center gap-6 rounded-[2.5rem] bg-gradient-to-br from-zinc-50 to-zinc-100 p-8 shadow-2xl ring-1 ring-black/5">
+              <span className="text-7xl">🍱</span>
+              <div className="grid w-full grid-cols-3 gap-3 text-center">
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <p className="text-lg font-extrabold text-brand">600</p>
+                  <p className="text-[10px] font-bold uppercase text-zinc-400">kcal</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <p className="text-lg font-extrabold text-brand">28g</p>
+                  <p className="text-[10px] font-bold uppercase text-zinc-400">protein</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <p className="text-lg font-extrabold text-brand">60g</p>
+                  <p className="text-[10px] font-bold uppercase text-zinc-400">carbs</p>
+                </div>
+              </div>
             </div>
             <div className="absolute -left-4 top-10 rounded-2xl bg-white px-4 py-2.5 shadow-lg ring-1 ring-black/5">
               <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Starting at</p>
-              <p className="text-xl font-extrabold text-brand">₹149</p>
+              <p className="text-xl font-extrabold text-brand">₹70</p>
             </div>
             <div className="absolute -right-4 bottom-16 rounded-2xl bg-white px-4 py-2.5 shadow-lg ring-1 ring-black/5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Delivery in</p>
-              <p className="text-xl font-extrabold text-zinc-900">4–5 days</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Delivery</p>
+              <p className="text-xl font-extrabold text-zinc-900">Daily, fresh</p>
             </div>
           </div>
         </div>
@@ -97,12 +115,21 @@ export default function HomePage() {
         <div className="grid gap-6 sm:grid-cols-3">
           {[
             {
-              icon: "👕",
-              title: "Custom T-Shirts",
-              desc: "Design your own tee. Pick from 20+ graphics or upload your own. We print with DTF and ship across India in 4–5 days.",
-              cta: "Start Designing",
-              href: "/customize",
-              badge: "Ships all India",
+              icon: "🍛",
+              title: "Daily Meals",
+              desc: "Browse today's combo meals — breakfast, lunch and dinner — with macros for each. Order any day on WhatsApp.",
+              cta: "View Menu",
+              href: "/menu",
+              badge: "₹70–₹200 per meal",
+            },
+            {
+              icon: "📅",
+              title: "Subscription Plans",
+              desc: "Monthly plans for breakfast, lunch, dinner or all three — with daily protein, carb and energy targets. Save vs ordering daily.",
+              cta: "View Plans",
+              href: "/plans",
+              badge: "Pause anytime",
+              featured: true,
             },
             {
               icon: "✂️",
@@ -111,15 +138,6 @@ export default function HomePage() {
               cta: "Book Now",
               href: "/saree",
               badge: "Free home pickup",
-              featured: true,
-            },
-            {
-              icon: "🏷️",
-              title: "Seasonal Deals",
-              desc: "Trending products, festival specials, and curated picks — updated every season. Best prices, delivered fast.",
-              cta: "Shop Now",
-              href: "/shop",
-              badge: "New arrivals weekly",
             },
           ].map((s) => (
             <div
@@ -132,7 +150,7 @@ export default function HomePage() {
             >
               {s.featured && (
                 <span className="absolute right-4 top-4 rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">
-                  Popular
+                  Best Value
                 </span>
               )}
               <span className="text-4xl">{s.icon}</span>
@@ -170,24 +188,49 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── READY TO ORDER — featured products ────────────────────────────── */}
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Ready to wear</p>
-            <h2 className="mt-1 text-3xl font-extrabold text-zinc-900">Shop Now</h2>
-            <p className="mt-1 text-sm text-zinc-500">Pick your size — we print &amp; ship in 4–5 days.</p>
+      {/* ── Today's combos ───────────────────────────────────────────────── */}
+      {featuredCombos.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Order today</p>
+              <h2 className="mt-1 text-3xl font-extrabold text-zinc-900">Popular Combo Meals</h2>
+              <p className="mt-1 text-sm text-zinc-500">Pick a combo and order on WhatsApp.</p>
+            </div>
+            <Link href="/menu" className="shrink-0 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:border-brand hover:text-brand transition">
+              View full menu →
+            </Link>
           </div>
-          <Link href="/shop" className="shrink-0 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:border-brand hover:text-brand transition">
-            View all {READY_PRODUCTS.length} tees →
-          </Link>
-        </div>
-        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {featuredProducts.map((p) => (
-            <ReadyProductCard key={p.id} product={p} />
-          ))}
-        </div>
-      </section>
+          <div className="mt-8 grid gap-6 sm:grid-cols-3">
+            {featuredCombos.map((combo) => (
+              <div key={combo.id} className="flex flex-col rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-base font-extrabold text-zinc-900">{combo.name}</h3>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                      combo.dietType === "nonveg" ? "bg-red-50 text-red-600" : "bg-brand-muted text-brand"
+                    }`}
+                  >
+                    {combo.dietType === "nonveg" ? "Non-Veg" : "Veg"}
+                  </span>
+                </div>
+                <p className="mt-2 flex-1 text-sm text-zinc-500">{combo.items.join(", ")}</p>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xl font-extrabold text-brand">₹{combo.price}</span>
+                  <a
+                    href={buildWhatsAppLink(`Hi Gharsip, I'd like to order *${combo.name}* (₹${combo.price}) for today.`)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-dark transition"
+                  >
+                    Order
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── How it works ──────────────────────────────────────────────────── */}
       <section className="border-y border-zinc-100 bg-zinc-50 py-14">
@@ -198,61 +241,54 @@ export default function HomePage() {
           </div>
           <div className="mx-auto mt-10 grid gap-6 sm:grid-cols-3">
             {[
-              { num: "01", icon: "🛍️", title: "Pick a tee", desc: "Shop ready tees or browse 50+ designs and choose your colour." },
-              { num: "02", icon: "📐", title: "Select your size", desc: "S to XXXL available. Check the size guide — free exchanges on wrong fit." },
-              { num: "03", icon: "📦", title: "Delivered home", desc: "Secure checkout via UPI or card. Printed &amp; shipped in 4–5 business days." },
+              { num: "01", icon: "🍽️", title: "Pick a meal or plan", desc: "Browse today's combos or choose a monthly subscription that fits your macros." },
+              { num: "02", icon: "💬", title: "Order on WhatsApp", desc: "Message us your combo or fill the subscription form — we confirm your order and delivery slot." },
+              { num: "03", icon: "🚚", title: "Delivered fresh", desc: "Hot, home-style meals delivered daily to your door. Pause or change anytime." },
             ].map((s) => (
               <div key={s.num} className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:shadow-md">
                 <span className="absolute right-4 top-4 font-extrabold text-zinc-100 text-5xl leading-none select-none">{s.num}</span>
                 <div className="text-4xl">{s.icon}</div>
                 <h3 className="mt-4 text-base font-extrabold text-zinc-900">{s.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-500" dangerouslySetInnerHTML={{ __html: s.desc }} />
+                <p className="mt-2 text-sm leading-relaxed text-zinc-500">{s.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Popular designs ───────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Top picks</p>
-            <h2 className="mt-1 text-3xl font-extrabold text-zinc-900">Popular designs</h2>
-            <p className="mt-1 text-sm text-zinc-500">Best-selling graphics this season.</p>
+      {/* ── Popular plans ─────────────────────────────────────────────────── */}
+      {featuredPlans.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Subscribe &amp; save</p>
+              <h2 className="mt-1 text-3xl font-extrabold text-zinc-900">Popular Plans</h2>
+              <p className="mt-1 text-sm text-zinc-500">Daily macro targets, billed monthly.</p>
+            </div>
+            <Link href="/plans" className="shrink-0 text-sm font-bold text-brand hover:underline underline-offset-4">
+              View all plans →
+            </Link>
           </div>
-          <Link href="/gallery" className="shrink-0 text-sm font-bold text-brand hover:underline underline-offset-4">
-            View all →
-          </Link>
-        </div>
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {popular.map((d) => (
-            <DesignCard key={d.id} design={d} compact />
-          ))}
-        </div>
-      </section>
-
-      {/* ── Browse by category ────────────────────────────────────────────── */}
-      <section className="border-y border-zinc-100 bg-zinc-50 py-14">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div className="text-center">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Collections</p>
-            <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Shop by category</h2>
-          </div>
-          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            {CATEGORY_TABS.filter((c) => c.id !== "all").map((cat) => (
-              <Link
-                key={cat.id}
-                href={`/gallery?cat=${cat.id}`}
-                className="group flex flex-col items-center gap-2 rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-brand/30 hover:shadow-md"
-              >
-                <span className="text-3xl">{cat.emoji}</span>
-                <span className="text-sm font-bold text-zinc-700 group-hover:text-brand transition-colors">{cat.label}</span>
-              </Link>
+          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredPlans.map((plan) => (
+              <div key={plan.id} className="flex flex-col rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm">
+                <h3 className="text-base font-extrabold text-zinc-900">{plan.name}</h3>
+                <p className="mt-1.5 text-sm text-zinc-500">{plan.description}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold">
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">{plan.dailyMacros.energyKcal} kcal/day</span>
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">{plan.dailyMacros.proteinG}g protein</span>
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-lg font-extrabold text-brand">₹{plan.priceMonthly.toLocaleString("en-IN")}/mo</span>
+                  <Link href={`/subscribe/${plan.id}`} className="rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-dark transition">
+                    Subscribe
+                  </Link>
+                </div>
+              </div>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ── Reviews ───────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
@@ -262,7 +298,6 @@ export default function HomePage() {
           <div className="mt-2 flex items-center justify-center gap-2">
             <span className="text-amber-400 text-lg">★★★★★</span>
             <span className="text-sm font-bold text-zinc-700">4.9 out of 5</span>
-            <span className="text-sm text-zinc-400">· 2,000+ reviews</span>
           </div>
         </div>
         <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -287,14 +322,19 @@ export default function HomePage() {
       {/* ── CTA banner ────────────────────────────────────────────────────── */}
       <section className="bg-brand py-16">
         <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
-          <h2 className="text-3xl font-extrabold text-white sm:text-4xl">Ready to wear your vibe?</h2>
-          <p className="mt-4 text-lg text-green-100">Join 2,000+ customers across India. Free shipping above ₹499.</p>
+          <h2 className="text-3xl font-extrabold text-white sm:text-4xl">Ready for fresh meals every day?</h2>
+          <p className="mt-4 text-lg text-green-100">Order today&apos;s meal on WhatsApp, or subscribe to a monthly plan.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Link href="/shop" className="inline-flex items-center gap-2 rounded-2xl bg-white px-8 py-4 text-base font-bold text-brand shadow-lg hover:bg-green-50 transition">
-              Shop Ready Tees →
-            </Link>
-            <Link href="/customize" className="inline-flex items-center gap-2 rounded-2xl border-2 border-white/30 px-6 py-4 text-base font-semibold text-white hover:bg-white/10 transition">
-              Design Your Own
+            <a
+              href={buildWhatsAppLink("Hi Gharsip, I'd like to order a meal for today.")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-2xl bg-white px-8 py-4 text-base font-bold text-brand shadow-lg hover:bg-green-50 transition"
+            >
+              Order on WhatsApp →
+            </a>
+            <Link href="/plans" className="inline-flex items-center gap-2 rounded-2xl border-2 border-white/30 px-6 py-4 text-base font-semibold text-white hover:bg-white/10 transition">
+              View Subscription Plans
             </Link>
           </div>
         </div>

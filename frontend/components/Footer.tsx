@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { GHARSIP_WHATSAPP_NUMBER } from "@/lib/whatsapp";
 
-const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "919999999999";
+const WA_NUMBER = GHARSIP_WHATSAPP_NUMBER;
 
 export function Footer() {
   return (
@@ -15,11 +16,11 @@ export function Footer() {
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white font-extrabold text-sm">G</div>
               <div className="flex flex-col leading-tight">
                 <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-brand">Gharsip</span>
-                <span className="text-[13px] font-extrabold text-zinc-900">Wear Your Vibe</span>
+                <span className="text-[13px] font-extrabold text-zinc-900">Home-Style Meals</span>
               </div>
             </div>
             <p className="mt-3 text-sm text-zinc-500">
-              Custom t-shirts printed &amp; shipped across India. Saree &amp; blouse services at your doorstep in Bengaluru.
+              Home-style meals &amp; monthly tiffin subscriptions, delivered fresh. Saree &amp; blouse services at your doorstep in Bengaluru.
             </p>
             <p className="mt-1.5 text-xs font-semibold text-brand">Varthur · Balagere · Whitefield · Marathahalli</p>
             <a
@@ -35,16 +36,16 @@ export function Footer() {
             </a>
           </div>
 
-          {/* T-shirts */}
+          {/* Meals */}
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">T-Shirts</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Meals</h3>
             <ul className="mt-4 space-y-2.5">
               {[
-                { href: "/shop",             label: "Shop Ready Tees"  },
-                { href: "/customize",        label: "Design Your Own"  },
-                { href: "/gallery",          label: "Browse Designs"   },
-                { href: "/gallery?cat=fitness",  label: "Fitness Tees" },
-                { href: "/gallery?cat=kannada",  label: "Kannada Tees" },
+                { href: "/menu",                       label: "Today's Menu"      },
+                { href: "/menu?meal=breakfast",        label: "Breakfast Combos"   },
+                { href: "/menu?meal=lunch_dinner",     label: "Lunch & Dinner"     },
+                { href: "/plans",                      label: "Subscription Plans" },
+                { href: "/track",                      label: "Track Subscription" },
               ].map((l) => (
                 <li key={l.href}>
                   <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
@@ -77,10 +78,10 @@ export function Footer() {
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Help</h3>
             <ul className="mt-4 space-y-2.5">
               {[
-                { href: "/track", label: "Track Order"    },
-                { href: "#",      label: "Sizing Guide"   },
-                { href: "#",      label: "Return Policy"  },
-                { href: "#",      label: "Shipping Info"  },
+                { href: "/track", label: "Track Subscription" },
+                { href: "#",      label: "Delivery Areas"      },
+                { href: "#",      label: "Pause / Cancel Plan" },
+                { href: "#",      label: "Contact Us"          },
               ].map((l) => (
                 <li key={l.label}>
                   <Link href={l.href} className="text-sm text-zinc-500 hover:text-brand transition-colors">{l.label}</Link>
@@ -90,10 +91,10 @@ export function Footer() {
             <h3 className="mt-6 text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Why Gharsip</h3>
             <ul className="mt-3 space-y-2">
               {[
-                { icon: "🧵", text: "Premium cotton tees" },
-                { icon: "✂️", text: "Expert tailors 5+ yrs" },
-                { icon: "🏠", text: "Free home pickup" },
-                { icon: "🔒", text: "Secure payments" },
+                { icon: "🍱", text: "Home-style cooking" },
+                { icon: "🥗", text: "Macro info per meal" },
+                { icon: "🚚", text: "Free home delivery" },
+                { icon: "📅", text: "Pause anytime" },
               ].map((b) => (
                 <li key={b.text} className="flex items-center gap-2 text-sm text-zinc-500">
                   <span>{b.icon}</span>{b.text}

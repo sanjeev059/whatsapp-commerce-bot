@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
+import { cycleSuffix } from "@/lib/billing";
 import { fetchSubscriptions, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import type { Subscription } from "@/lib/types";
 
@@ -112,7 +113,7 @@ function TrackInner() {
                   Start date: <span className="font-semibold text-zinc-800">{sub.startDate}</span>
                 </p>
                 <p className="text-zinc-500">
-                  Plan: <span className="font-semibold text-zinc-800">₹{sub.priceMonthly.toLocaleString("en-IN")}/mo</span>
+                  Plan: <span className="font-semibold text-zinc-800">₹{sub.priceMonthly.toLocaleString("en-IN")}{cycleSuffix(sub.billingCycle)}</span>
                 </p>
                 <p className="text-zinc-500">
                   Payment: <span className="font-semibold text-zinc-800">{PAYMENT_LABELS[sub.paymentStatus]}</span>

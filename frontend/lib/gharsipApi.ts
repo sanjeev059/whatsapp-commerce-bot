@@ -1,3 +1,4 @@
+import { FALLBACK_COMBOS, FALLBACK_MENU_ITEMS } from "./fallbackMenu";
 import { FALLBACK_PLANS } from "./fallbackPlans";
 import type { Combo, MenuItem, Subscription, SubscriptionCustomer, SubscriptionPlan } from "./types";
 
@@ -24,33 +25,63 @@ async function readError(res: Response, fallback: string): Promise<string> {
   return res.statusText || fallback;
 }
 
-/** GET /api/menu/items?category=… */
-export async function getMenuItems(category?: string): Promise<MenuItem[]> {
-  const base = getGharsipBackendUrl();
-  if (!base) return [];
-
-  const q = category && category !== "all" ? `?category=${encodeURIComponent(category)}` : "";
-  const res = await fetch(`${base}/api/menu/items${q}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(await readError(res, `Failed to load menu (${res.status})`));
-
-  const data = (await res.json()) as { items: MenuItem[] };
-  return data.items ?? [];
+function filterFallbackItems(category?: string): MenuItem[] {
+  if (!category || category === "all") return FALLBACK_MENU_ITEMS;
+  return FALLBACK_MENU_ITEMS.filter((i) => i.category === category);
 }
 
-/** GET /api/menu/combos?mealType=&dietType= */
+function filterFallbackCombos(mealType?: string, dietType?: string): Combo[] {
+  return FALLBACK_COMBOS.filter(
+    (c) =>
+      (!mealType || mealType === "all" || c.mealType === mealType) &&
+      (!dietType || dietType === "all" || c.dietType === dietType)
+  );
+}
+
+/**
+ * GET /api/menu/items?category=… — falls back to the static menu (FALLBACK_MENU_ITEMS)
+ * if the backend URL isn't configured, or the API call fails, so today's menu always
+ * has items to show.
+ */
+export async function getMenuItems(category?: string): Promise<MenuItem[]> {
+  const base = getGharsipBackendUrl();
+  if (!base) return filterFallbackItems(category);
+
+  try {
+    const q = category && category !== "all" ? `?category=${encodeURIComponent(category)}` : "";
+    const res = await fetch(`${base}/api/menu/items${q}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, `Failed to load menu (${res.status})`));
+
+    const data = (await res.json()) as { items: MenuItem[] };
+    return data.items?.length ? data.items : filterFallbackItems(category);
+  } catch (e) {
+    console.error("getMenuItems: falling back to static menu —", e);
+    return filterFallbackItems(category);
+  }
+}
+
+/**
+ * GET /api/menu/combos?mealType=&dietType= — falls back to the static combo list
+ * (FALLBACK_COMBOS) if the backend URL isn't configured, or the API call fails.
+ */
 export async function getCombos(mealType?: string, dietType?: string): Promise<Combo[]> {
   const base = getGharsipBackendUrl();
-  if (!base) return [];
+  if (!base) return filterFallbackCombos(mealType, dietType);
 
-  const params = new URLSearchParams();
-  if (mealType && mealType !== "all") params.set("mealType", mealType);
-  if (dietType && dietType !== "all") params.set("dietType", dietType);
-  const qs = params.toString();
-  const res = await fetch(`${base}/api/menu/combos${qs ? `?${qs}` : ""}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(await readError(res, `Failed to load combos (${res.status})`));
+  try {
+    const params = new URLSearchParams();
+    if (mealType && mealType !== "all") params.set("mealType", mealType);
+    if (dietType && dietType !== "all") params.set("dietType", dietType);
+    const qs = params.toString();
+    const res = await fetch(`${base}/api/menu/combos${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, `Failed to load combos (${res.status})`));
 
-  const data = (await res.json()) as { combos: Combo[] };
-  return data.combos ?? [];
+    const data = (await res.json()) as { combos: Combo[] };
+    return data.combos?.length ? data.combos : filterFallbackCombos(mealType, dietType);
+  } catch (e) {
+    console.error("getCombos: falling back to static combo list —", e);
+    return filterFallbackCombos(mealType, dietType);
+  }
 }
 
 /**

@@ -24,7 +24,7 @@ export default async function HomePage() {
   ]);
 
   const featuredCombos = combos.slice(0, 3);
-  const featuredPlans = plans.slice(0, 3);
+  const featuredPlans = plans.filter((p) => (p.billingCycle ?? "monthly") === "monthly").slice(0, 3);
 
   return (
     <>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Footer } from "@/components/Footer";
+import { cycleSuffix } from "@/lib/billing";
 import { createSubscription, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { SubscriptionPlan } from "@/lib/types";
@@ -135,7 +136,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
             </div>
             <p className="mt-4 text-2xl font-extrabold">
               ₹{plan.priceMonthly.toLocaleString("en-IN")}
-              <span className="text-sm font-semibold text-green-100"> /month</span>
+              <span className="text-sm font-semibold text-green-100"> {cycleSuffix(plan.billingCycle)}</span>
             </p>
           </div>
         </section>
@@ -146,7 +147,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
           </p>
           <a
             href={buildWhatsAppLink(
-              `Hi Gharsip, I'd like to subscribe to the *${plan.name}* plan (₹${plan.priceMonthly.toLocaleString("en-IN")}/month).`
+              `Hi Gharsip, I'd like to subscribe to the *${plan.name}* plan (₹${plan.priceMonthly.toLocaleString("en-IN")}${cycleSuffix(plan.billingCycle)}).`
             )}
             target="_blank"
             rel="noopener noreferrer"
@@ -180,7 +181,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
           </div>
           <p className="mt-4 text-2xl font-extrabold">
             ₹{plan.priceMonthly.toLocaleString("en-IN")}
-            <span className="text-sm font-semibold text-green-100"> /month</span>
+            <span className="text-sm font-semibold text-green-100"> {cycleSuffix(plan.billingCycle)}</span>
           </p>
         </div>
       </section>

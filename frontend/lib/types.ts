@@ -29,6 +29,7 @@ export type SubscriptionPlan = {
   description: string;
   mealTypes: string[];
   dietType: "veg" | "nonveg" | string;
+  billingCycle: "weekly" | "monthly";
   durationDays: number;
   dailyMacros: {
     energyKcal: number;
@@ -60,6 +61,7 @@ export type Subscription = {
   planId: string;
   planName: string;
   priceMonthly: number;
+  billingCycle?: "weekly" | "monthly";
   customer: SubscriptionCustomer;
   phoneDigits: string;
   dietPreference?: string;

@@ -98,7 +98,7 @@ function Inner() {
             Start date: <span className="font-semibold text-zinc-900">{sub.startDate}</span>
           </p>
           <p>
-            Monthly price:{" "}
+            {sub.billingCycle === "weekly" ? "Weekly" : "Monthly"} price:{" "}
             <span className="font-semibold text-zinc-900">₹{sub.priceMonthly.toLocaleString("en-IN")}</span>
           </p>
           <p>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { cycleSuffix } from "@/lib/billing";
 import { isGharsipApiEnabled } from "@/lib/gharsipApi";
 import type { DeliveryLogEntry, Subscription } from "@/lib/types";
 
@@ -253,7 +254,7 @@ function SubscriptionAdminRow({
         </td>
         <td className="p-3">{sub.planName}</td>
         <td className="p-3 text-xs">{sub.startDate}</td>
-        <td className="p-3 font-bold">₹{sub.priceMonthly.toLocaleString("en-IN")}</td>
+        <td className="p-3 font-bold">₹{sub.priceMonthly.toLocaleString("en-IN")}{cycleSuffix(sub.billingCycle)}</td>
         <td className="p-3">
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLORS[status]}`}>
             {STATUS_LABELS[status]}

@@ -130,6 +130,7 @@ def mount_subscriptions(
             "planId": payload.planId,
             "planName": plan["name"],
             "priceMonthly": plan["priceMonthly"],
+            "billingCycle": plan.get("billingCycle", "monthly"),
             "customer": payload.customer.model_dump(),
             "phoneDigits": _digits_last10(payload.customer.phone),
             "dietPreference": payload.dietPreference or plan.get("dietType"),

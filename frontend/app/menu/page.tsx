@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
-import { getCombos, getMenuItems, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { getCombos, getMenuItems } from "@/lib/gharsipApi";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { Combo, MenuItem } from "@/lib/types";
 
@@ -251,17 +251,11 @@ function MenuInner() {
           <p className="mt-10 text-center text-sm text-zinc-400">Loading menu…</p>
         )}
 
-        {!loading && !isGharsipApiEnabled() && (
-          <div className="mt-10 rounded-2xl border border-zinc-200 bg-zinc-50 p-6 text-center text-sm text-zinc-500">
-            Menu is being updated. Message us on WhatsApp for today&apos;s combos and prices.
-          </div>
-        )}
-
         {!loading && error && (
           <p className="mt-10 text-center text-sm font-semibold text-red-600">{error}</p>
         )}
 
-        {!loading && !error && isGharsipApiEnabled() && visibleCombos.length === 0 && (
+        {!loading && !error && visibleCombos.length === 0 && (
           <p className="mt-10 text-center text-sm text-zinc-400">No combos match these filters.</p>
         )}
 

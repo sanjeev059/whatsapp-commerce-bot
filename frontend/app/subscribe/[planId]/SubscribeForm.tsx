@@ -6,19 +6,17 @@ import { useRouter } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { cycleSuffix } from "@/lib/billing";
 import { createSubscription, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { MEAL_TIME_SLOTS, MEAL_TYPE_LABELS } from "@/lib/timeSlots";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { SubscriptionPlan } from "@/lib/types";
 
-const MEAL_LABELS: Record<string, string> = {
-  breakfast: "Breakfast",
-  lunch: "Lunch",
-  dinner: "Dinner",
-};
+const MEAL_LABELS = MEAL_TYPE_LABELS;
 
 type FormState = {
   name: string;
   phone: string;
   email: string;
+  apartment: string;
   address1: string;
   address2: string;
   city: string;
@@ -32,6 +30,7 @@ const INITIAL_FORM: FormState = {
   name: "",
   phone: "",
   email: "",
+  apartment: "",
   address1: "",
   address2: "",
   city: "",
@@ -44,10 +43,13 @@ const INITIAL_FORM: FormState = {
 export function SubscribeForm({ planId, plan }: { planId: string; plan: SubscriptionPlan | null }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [mealTimeSlots, setMealTimeSlots] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const setSlot = (mealType: string, slot: string) =>
+    setMealTimeSlots((s) => ({ ...s, [mealType]: slot }));
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -60,12 +62,20 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
       setError("Enter a valid 10-digit phone number");
       return;
     }
+    if (!form.apartment.trim()) {
+      setError("Please tell us your apartment / society name");
+      return;
+    }
     if (!form.address1.trim() || !form.city.trim() || !form.state.trim() || !form.pincode.trim()) {
       setError("Please fill in your delivery address");
       return;
     }
     if (!form.startDate) {
       setError("Please choose a start date");
+      return;
+    }
+    if (plan && plan.mealTypes.some((m) => !mealTimeSlots[m])) {
+      setError("Please choose a delivery time slot for each meal");
       return;
     }
 
@@ -78,6 +88,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
           name: form.name,
           phone: form.phone,
           email: form.email,
+          apartment: form.apartment,
           address1: form.address1,
           address2: form.address2 || undefined,
           city: form.city,
@@ -86,6 +97,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
         },
         startDate: form.startDate,
         notes: form.notes || undefined,
+        mealTimeSlots,
       });
       router.push(
         `/subscription-confirmed?id=${encodeURIComponent(res.id)}&phone=${encodeURIComponent(form.phone)}`
@@ -226,6 +238,19 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
             </div>
 
             <div>
+              <label className="block text-xs font-bold text-zinc-500 mb-1.5">Apartment / Society Name *</label>
+              <input
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm focus:border-brand focus:outline-none"
+                value={form.apartment}
+                onChange={(e) => set("apartment", e.target.value)}
+                placeholder="e.g. Purva Westend"
+              />
+              <p className="mt-1 text-xs text-zinc-400">
+                Helps our delivery rider group drops to your building.
+              </p>
+            </div>
+
+            <div>
               <label className="block text-xs font-bold text-zinc-500 mb-1.5">Address Line 1 *</label>
               <input
                 className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm focus:border-brand focus:outline-none"
@@ -276,6 +301,34 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
                 />
               </div>
             </div>
+
+            {plan.mealTypes.map((mealType) => {
+              const options = MEAL_TIME_SLOTS[mealType as keyof typeof MEAL_TIME_SLOTS] ?? [];
+              if (options.length === 0) return null;
+              return (
+                <div key={mealType}>
+                  <label className="block text-xs font-bold text-zinc-500 mb-1.5">
+                    {MEAL_LABELS[mealType] ?? mealType} delivery time *
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {options.map((slot) => (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() => setSlot(mealType, slot)}
+                        className={`rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
+                          mealTimeSlots[mealType] === slot
+                            ? "border-brand bg-brand text-white"
+                            : "border-zinc-300 text-zinc-700 hover:border-brand hover:text-brand"
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
 
             <div>
               <label className="block text-xs font-bold text-zinc-500 mb-1.5">Start Date *</label>

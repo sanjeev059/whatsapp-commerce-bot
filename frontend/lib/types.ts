@@ -43,6 +43,7 @@ export type SubscriptionCustomer = {
   name: string;
   phone: string;
   email: string;
+  apartment: string;
   address1: string;
   address2?: string;
   city: string;
@@ -66,9 +67,41 @@ export type Subscription = {
   phoneDigits: string;
   dietPreference?: string;
   startDate: string;
+  mealTimeSlots?: Record<string, string>;
   notes?: string;
   status: "pending_confirmation" | "active" | "paused" | "cancelled" | "completed";
   paymentStatus: "pending" | "paid" | "failed";
   deliveryLog: DeliveryLogEntry[];
+  createdAt: string;
+};
+
+export type OrderCustomer = {
+  name: string;
+  phone: string;
+  apartment: string;
+  address1: string;
+  city: string;
+};
+
+export type OrderLine = {
+  kind: "combo" | "item";
+  id: string;
+  name: string;
+  price: number;
+  qty: number;
+};
+
+export type Order = {
+  id: string;
+  items: OrderLine[];
+  total: number;
+  customer: OrderCustomer;
+  phoneDigits: string;
+  mealType: "breakfast" | "lunch" | "dinner" | string;
+  timeSlot: string;
+  deliveryDate: string;
+  notes?: string;
+  status: "placed" | "confirmed" | "delivered" | "cancelled";
+  paymentStatus: "pending" | "paid" | "failed";
   createdAt: string;
 };

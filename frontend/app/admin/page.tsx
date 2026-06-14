@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { cycleSuffix } from "@/lib/billing";
 import { isGharsipApiEnabled } from "@/lib/gharsipApi";
-import type { DeliveryLogEntry, Subscription } from "@/lib/types";
+import { MEAL_TYPE_LABELS } from "@/lib/timeSlots";
+import type { DeliveryLogEntry, Order, Subscription } from "@/lib/types";
 
 const STATUS_LABELS: Record<Subscription["status"], string> = {
   pending_confirmation: "Pending Confirmation",
@@ -34,13 +35,52 @@ const PAYMENT_COLORS: Record<Subscription["paymentStatus"], string> = {
   failed: "bg-red-100 text-red-600",
 };
 
+const ORDER_STATUS_LABELS: Record<Order["status"], string> = {
+  placed: "Placed",
+  confirmed: "Confirmed",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+const ORDER_STATUS_COLORS: Record<Order["status"], string> = {
+  placed: "bg-amber-100 text-amber-700",
+  confirmed: "bg-blue-100 text-blue-700",
+  delivered: "bg-green-100 text-green-700",
+  cancelled: "bg-red-100 text-red-600",
+};
+
+type DeliveryGroup = {
+  apartment: string;
+  timeSlot: string;
+  subscriptions: { id: string; name: string; phone: string; address: string; planName: string }[];
+  orders: { id: string; name: string; phone: string; address: string; items: { name: string; qty: number }[] }[];
+};
+
+type DeliveryGroupsResponse = {
+  date: string;
+  mealType: string;
+  timeSlots: string[];
+  groups: DeliveryGroup[];
+};
+
+const DELIVERY_MEAL_TYPES = ["breakfast", "lunch", "dinner"] as const;
+
 export default function AdminPage() {
   const [pw, setPw] = useState("");
   const [ok, setOk] = useState(false);
   const [adminPin, setAdminPin] = useState("");
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<"subscriptions" | "orders" | "deliveries">("subscriptions");
+
+  const todayIso = new Date().toISOString().split("T")[0];
+  const [deliveryMealType, setDeliveryMealType] = useState<(typeof DELIVERY_MEAL_TYPES)[number]>("breakfast");
+  const [deliveryDate, setDeliveryDate] = useState(todayIso);
+  const [deliveryGroups, setDeliveryGroups] = useState<DeliveryGroupsResponse | null>(null);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   const useBackend = isGharsipApiEnabled();
 
@@ -48,25 +88,53 @@ export default function AdminPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/backend-subscriptions", {
-        headers: { "x-admin-pin": adminPin },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setError(await res.text());
+      const [subsRes, ordersRes] = await Promise.all([
+        fetch("/api/admin/backend-subscriptions", { headers: { "x-admin-pin": adminPin }, cache: "no-store" }),
+        fetch("/api/admin/backend-orders", { headers: { "x-admin-pin": adminPin }, cache: "no-store" }),
+      ]);
+      if (!subsRes.ok) {
+        setError(await subsRes.text());
         setSubs([]);
-        return;
+      } else {
+        const j = (await subsRes.json()) as { subscriptions?: Subscription[] };
+        setSubs(j.subscriptions ?? []);
       }
-      const j = (await res.json()) as { subscriptions?: Subscription[] };
-      setSubs(j.subscriptions ?? []);
+      if (ordersRes.ok) {
+        const j = (await ordersRes.json()) as { orders?: Order[] };
+        setOrders(j.orders ?? []);
+      }
     } finally {
       setLoading(false);
     }
   }, [adminPin]);
 
+  const refreshDeliveries = useCallback(async () => {
+    setDeliveryError(null);
+    setDeliveryLoading(true);
+    try {
+      const q = new URLSearchParams({ mealType: deliveryMealType, date: deliveryDate });
+      const res = await fetch(`/api/admin/delivery-groups?${q}`, {
+        headers: { "x-admin-pin": adminPin },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setDeliveryError(await res.text());
+        setDeliveryGroups(null);
+        return;
+      }
+      setDeliveryGroups((await res.json()) as DeliveryGroupsResponse);
+    } finally {
+      setDeliveryLoading(false);
+    }
+  }, [adminPin, deliveryMealType, deliveryDate]);
+
   useEffect(() => {
     if (ok) void refresh();
   }, [ok, refresh]);
+
+  useEffect(() => {
+    if (ok && tab === "deliveries") void refreshDeliveries();
+  }, [ok, tab, refreshDeliveries]);
 
   const login = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,6 +152,8 @@ export default function AdminPage() {
     setOk(false);
     setAdminPin("");
     setSubs([]);
+    setOrders([]);
+    setDeliveryGroups(null);
   };
 
   if (!ok) {
@@ -118,6 +188,8 @@ export default function AdminPage() {
   const todaySubs = subs.filter((s) => new Date(s.createdAt).toDateString() === today);
   const activeSubs = subs.filter((s) => s.status === "active");
   const pendingSubs = subs.filter((s) => s.status === "pending_confirmation");
+  const todayOrders = orders.filter((o) => o.deliveryDate === todayIso);
+  const placedOrders = orders.filter((o) => o.status === "placed");
 
   const subtitle = useBackend
     ? `Subscriptions from Mongo (${process.env.NEXT_PUBLIC_BACKEND_URL}).`
@@ -127,7 +199,7 @@ export default function AdminPage() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold">Gharsip · Subscriptions</h1>
+          <h1 className="text-2xl font-extrabold">Gharsip · Operations</h1>
           <p className="text-xs text-zinc-500">{subtitle}</p>
           {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
         </div>
@@ -160,12 +232,48 @@ export default function AdminPage() {
           <p className="mt-2 text-3xl font-extrabold text-amber-600">{pendingSubs.length}</p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-bold uppercase text-zinc-500">Today</p>
+          <p className="text-xs font-bold uppercase text-zinc-500">Today&apos;s subscriptions</p>
           <p className="mt-2 text-3xl font-extrabold">{todaySubs.length}</p>
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-zinc-500">Total orders</p>
+          <p className="mt-2 text-3xl font-extrabold">{orders.length}</p>
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-zinc-500">Today&apos;s orders</p>
+          <p className="mt-2 text-3xl font-extrabold text-brand">{todayOrders.length}</p>
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-zinc-500">Orders awaiting confirmation</p>
+          <p className="mt-2 text-3xl font-extrabold text-amber-600">{placedOrders.length}</p>
         </div>
       </div>
 
-      <div className="mt-8 overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+      <div className="mt-6 flex flex-wrap gap-2">
+        {(
+          [
+            { id: "subscriptions" as const, label: "Subscriptions" },
+            { id: "orders" as const, label: "Orders" },
+            { id: "deliveries" as const, label: "Today's Deliveries" },
+          ]
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+              tab === t.id
+                ? "bg-brand text-white shadow-sm"
+                : "border border-zinc-200 bg-white text-zinc-600 hover:border-brand hover:text-brand"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "subscriptions" && (
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
         <table className="min-w-[860px] w-full text-left text-sm">
           <thead className="bg-zinc-100 text-xs uppercase text-zinc-600">
             <tr>
@@ -194,6 +302,128 @@ export default function AdminPage() {
           </tbody>
         </table>
       </div>
+      )}
+
+      {tab === "orders" && (
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+        <table className="min-w-[860px] w-full text-left text-sm">
+          <thead className="bg-zinc-100 text-xs uppercase text-zinc-600">
+            <tr>
+              <th className="p-3">ID</th>
+              <th className="p-3">Customer</th>
+              <th className="p-3">Apartment</th>
+              <th className="p-3">Delivery</th>
+              <th className="p-3">Items</th>
+              <th className="p-3">Total</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Payment</th>
+              <th className="p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="p-8 text-center text-zinc-500">
+                  No orders yet — they appear here after customers checkout on the menu.
+                </td>
+              </tr>
+            ) : (
+              orders.map((o) => (
+                <OrderAdminRow key={o.id} order={o} adminPin={adminPin} onSaved={() => void refresh()} />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      )}
+
+      {tab === "deliveries" && (
+      <div className="mt-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-2">
+            {DELIVERY_MEAL_TYPES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setDeliveryMealType(m)}
+                className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                  deliveryMealType === m
+                    ? "bg-brand text-white shadow-sm"
+                    : "border border-zinc-200 bg-white text-zinc-600 hover:border-brand hover:text-brand"
+                }`}
+              >
+                {MEAL_TYPE_LABELS[m] ?? m}
+              </button>
+            ))}
+          </div>
+          <input
+            type="date"
+            className="rounded-xl border border-zinc-300 px-3 py-2 text-sm"
+            value={deliveryDate}
+            onChange={(e) => setDeliveryDate(e.target.value)}
+          />
+          <button
+            type="button"
+            className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-bold disabled:opacity-50"
+            disabled={deliveryLoading}
+            onClick={() => void refreshDeliveries()}
+          >
+            {deliveryLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+
+        {deliveryError ? <p className="mt-3 text-xs text-red-600">{deliveryError}</p> : null}
+
+        <div className="mt-4 space-y-4">
+          {!deliveryGroups || deliveryGroups.groups.length === 0 ? (
+            <p className="rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
+              {deliveryLoading
+                ? "Loading deliveries…"
+                : `No ${MEAL_TYPE_LABELS[deliveryMealType]?.toLowerCase()} deliveries for ${deliveryDate} yet.`}
+            </p>
+          ) : (
+            deliveryGroups.groups.map((g) => {
+              const count = g.subscriptions.length + g.orders.length;
+              return (
+                <div key={`${g.apartment}-${g.timeSlot}`} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-base font-extrabold text-zinc-900">{g.apartment}</p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-brand">{g.timeSlot}</p>
+                    </div>
+                    <span className="rounded-full bg-brand-muted px-3 py-1 text-xs font-bold text-brand">
+                      {count} {count === 1 ? "delivery" : "deliveries"}
+                    </span>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm">
+                    {g.subscriptions.map((s) => (
+                      <li key={`sub-${s.id}`} className="rounded-xl bg-zinc-50 px-3 py-2">
+                        <p className="font-semibold text-zinc-800">
+                          {s.name} <span className="text-xs font-normal text-zinc-400">· {s.phone}</span>
+                        </p>
+                        <p className="text-xs text-zinc-500">{s.address}</p>
+                        <p className="text-xs text-zinc-400">Subscription: {s.planName} ({s.id})</p>
+                      </li>
+                    ))}
+                    {g.orders.map((o) => (
+                      <li key={`order-${o.id}`} className="rounded-xl bg-zinc-50 px-3 py-2">
+                        <p className="font-semibold text-zinc-800">
+                          {o.name} <span className="text-xs font-normal text-zinc-400">· {o.phone}</span>
+                        </p>
+                        <p className="text-xs text-zinc-500">{o.address}</p>
+                        <p className="text-xs text-zinc-400">
+                          Order {o.id}: {o.items.map((it) => `${it.name} x${it.qty}`).join(", ")}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+      )}
     </div>
   );
 }
@@ -386,6 +616,134 @@ function SubscriptionAdminRow({
                 >
                   {saving ? "Saving…" : "Add entry"}
                 </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function OrderAdminRow({
+  order,
+  adminPin,
+  onSaved,
+}: {
+  order: Order;
+  adminPin: string;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState(order.status);
+  const [paymentStatus, setPaymentStatus] = useState(order.paymentStatus);
+  const [saving, setSaving] = useState(false);
+
+  const save = async (patch: Record<string, unknown>) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/backend-orders/${encodeURIComponent(order.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-pin": adminPin },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        alert(await res.text());
+        return;
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <tr className="border-t border-zinc-100">
+        <td className="p-3 font-mono font-bold">{order.id}</td>
+        <td className="p-3">
+          <div className="font-semibold">{order.customer.name}</div>
+          <div className="text-xs text-zinc-500">{order.customer.phone}</div>
+        </td>
+        <td className="p-3">{order.customer.apartment}</td>
+        <td className="p-3 text-xs">
+          <p className="font-semibold capitalize">{MEAL_TYPE_LABELS[order.mealType] ?? order.mealType}</p>
+          <p className="text-zinc-500">{order.timeSlot}</p>
+          <p className="text-zinc-400">{order.deliveryDate}</p>
+        </td>
+        <td className="p-3 text-xs text-zinc-600">
+          {order.items.map((it) => `${it.name} x${it.qty}`).join(", ")}
+        </td>
+        <td className="p-3 font-bold">₹{order.total.toLocaleString("en-IN")}</td>
+        <td className="p-3">
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ORDER_STATUS_COLORS[status]}`}>
+            {ORDER_STATUS_LABELS[status]}
+          </span>
+        </td>
+        <td className="p-3">
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${PAYMENT_COLORS[paymentStatus]}`}>
+            {PAYMENT_LABELS[paymentStatus]}
+          </span>
+        </td>
+        <td className="p-3">
+          <button type="button" className="text-xs font-bold text-brand" onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide" : "Manage"}
+          </button>
+        </td>
+      </tr>
+      {open ? (
+        <tr className="bg-zinc-50">
+          <td colSpan={9} className="p-4 text-xs">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 font-semibold text-zinc-700">Delivery address</p>
+                <p className="text-zinc-600">{order.customer.address1}, {order.customer.city}</p>
+                {order.notes ? <p className="mt-1 text-zinc-600">Notes: {order.notes}</p> : null}
+              </div>
+              <div>
+                <p className="mb-2 font-semibold text-zinc-700">Status</p>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(ORDER_STATUS_LABELS) as Order["status"][]).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={saving || status === key}
+                      onClick={() => {
+                        setStatus(key);
+                        void save({ status: key });
+                      }}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
+                        status === key
+                          ? "bg-brand text-white"
+                          : "border border-zinc-300 text-zinc-700 hover:border-brand hover:text-brand"
+                      }`}
+                    >
+                      {ORDER_STATUS_LABELS[key]}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="mb-2 mt-4 font-semibold text-zinc-700">Payment</p>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(PAYMENT_LABELS) as Order["paymentStatus"][]).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={saving || paymentStatus === key}
+                      onClick={() => {
+                        setPaymentStatus(key);
+                        void save({ paymentStatus: key });
+                      }}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
+                        paymentStatus === key
+                          ? "bg-brand text-white"
+                          : "border border-zinc-300 text-zinc-700 hover:border-brand hover:text-brand"
+                      }`}
+                    >
+                      {PAYMENT_LABELS[key]}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </td>

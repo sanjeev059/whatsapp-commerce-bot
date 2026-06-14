@@ -4,9 +4,14 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
-import { getCombos, getMenuItems } from "@/lib/gharsipApi";
+import { createOrder, getCombos, getMenuItems, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { MEAL_TIME_SLOTS, MEAL_TYPE_LABELS } from "@/lib/timeSlots";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { Combo, MenuItem } from "@/lib/types";
+
+type MealSlotType = keyof typeof MEAL_TIME_SLOTS;
+
+const MEAL_SLOT_TYPES = Object.keys(MEAL_TIME_SLOTS) as MealSlotType[];
 
 const MEAL_TABS = [
   { id: "all", label: "All Meals" },
@@ -103,6 +108,18 @@ function MenuInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cart, setCart] = useState<CartState>({});
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({
+    name: "",
+    phone: "",
+    apartment: "",
+    address1: "",
+    city: "",
+  });
+  const [deliveryMealType, setDeliveryMealType] = useState<MealSlotType>("lunch");
+  const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("");
+  const [checkoutError, setCheckoutError] = useState("");
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +186,61 @@ function MenuInner() {
       `\n\n*Total: ₹${cartTotal}*\n\nPlease confirm availability and delivery time. Thank you!`
     );
   }, [cartLines, cartTotal]);
+
+  const setCheckoutField = (k: keyof typeof checkoutForm, v: string) =>
+    setCheckoutForm((f) => ({ ...f, [k]: v }));
+
+  const placeOrder = async () => {
+    if (!checkoutForm.name.trim() || !checkoutForm.phone.trim()) {
+      setCheckoutError("Please enter your name and phone number");
+      return;
+    }
+    if (checkoutForm.phone.replace(/\D/g, "").length < 10) {
+      setCheckoutError("Enter a valid 10-digit phone number");
+      return;
+    }
+    if (!checkoutForm.apartment.trim() || !checkoutForm.address1.trim() || !checkoutForm.city.trim()) {
+      setCheckoutError("Please fill in your apartment/society and address");
+      return;
+    }
+    if (!deliveryTimeSlot) {
+      setCheckoutError("Please choose a delivery time slot");
+      return;
+    }
+
+    setCheckoutError("");
+    setPlacingOrder(true);
+    try {
+      let orderId: string | undefined;
+      if (isGharsipApiEnabled()) {
+        const res = await createOrder({
+          customer: checkoutForm,
+          items: cartLines,
+          mealType: deliveryMealType,
+          timeSlot: deliveryTimeSlot,
+        });
+        orderId = res.id;
+      }
+
+      const detailLines = [
+        orderId ? `Order ref: ${orderId}` : null,
+        `Name: ${checkoutForm.name}`,
+        `Phone: ${checkoutForm.phone}`,
+        `Apartment/Society: ${checkoutForm.apartment}`,
+        `Address: ${checkoutForm.address1}, ${checkoutForm.city}`,
+        `${MEAL_TYPE_LABELS[deliveryMealType]} delivery slot: ${deliveryTimeSlot}`,
+      ].filter((l): l is string => Boolean(l));
+
+      const message = `${orderMessage}\n\n*Delivery details:*\n${detailLines.join("\n")}`;
+      window.open(buildWhatsAppLink(message), "_blank", "noopener,noreferrer");
+      setCheckoutOpen(false);
+      setCart({});
+    } catch (e) {
+      setCheckoutError(e instanceof Error ? e.message : "Something went wrong, please try again");
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
 
   return (
     <>
@@ -385,20 +457,151 @@ function MenuInner() {
                 Clear cart
               </button>
             </div>
-            <a
-              href={buildWhatsAppLink(orderMessage)}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setCheckoutOpen(true)}
               className="rounded-xl bg-brand px-5 py-3 text-sm font-extrabold text-white shadow-sm hover:bg-brand-dark transition"
             >
-              Checkout on WhatsApp →
-            </a>
+              Checkout →
+            </button>
           </div>
         </div>
       )}
 
       {/* Bottom padding so cart bar doesn't overlap content */}
       {cartCount > 0 && <div className="h-20" />}
+
+      {/* Delivery details modal */}
+      {checkoutOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 px-4 py-6 sm:items-center">
+          <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="text-lg font-extrabold text-zinc-900">Delivery details</h2>
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(false)}
+                aria-label="Close"
+                className="text-2xl leading-none text-zinc-400 hover:text-zinc-600"
+              >
+                ×
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              {cartCount} item{cartCount > 1 ? "s" : ""} · ₹{cartTotal}
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Full Name *</label>
+                <input
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                  value={checkoutForm.name}
+                  onChange={(e) => setCheckoutField("name", e.target.value)}
+                  placeholder="Your full name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Phone Number *</label>
+                <input
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                  value={checkoutForm.phone}
+                  onChange={(e) => setCheckoutField("phone", e.target.value)}
+                  placeholder="10-digit mobile number"
+                  maxLength={10}
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Apartment / Society *</label>
+                <input
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                  value={checkoutForm.apartment}
+                  onChange={(e) => setCheckoutField("apartment", e.target.value)}
+                  placeholder="e.g. Purva Westend"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 mb-1.5">Flat / Block *</label>
+                  <input
+                    className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                    value={checkoutForm.address1}
+                    onChange={(e) => setCheckoutField("address1", e.target.value)}
+                    placeholder="Flat no., block, tower"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 mb-1.5">Area / City *</label>
+                  <input
+                    className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                    value={checkoutForm.city}
+                    onChange={(e) => setCheckoutField("city", e.target.value)}
+                    placeholder="Area, city"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">When should we deliver? *</label>
+                <div className="flex gap-2">
+                  {MEAL_SLOT_TYPES.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setDeliveryMealType(m);
+                        setDeliveryTimeSlot("");
+                      }}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                        deliveryMealType === m
+                          ? "border-brand bg-brand text-white"
+                          : "border-zinc-300 text-zinc-700 hover:border-brand hover:text-brand"
+                      }`}
+                    >
+                      {MEAL_TYPE_LABELS[m] ?? m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Time slot *</label>
+                <div className="flex flex-wrap gap-2">
+                  {MEAL_TIME_SLOTS[deliveryMealType].map((slot) => (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => setDeliveryTimeSlot(slot)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                        deliveryTimeSlot === slot
+                          ? "border-brand bg-brand text-white"
+                          : "border-zinc-300 text-zinc-700 hover:border-brand hover:text-brand"
+                      }`}
+                    >
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {checkoutError && (
+                <p className="rounded-xl bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600">
+                  {checkoutError}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void placeOrder()}
+                disabled={placingOrder}
+                className="w-full rounded-xl bg-brand py-3 text-sm font-extrabold text-white disabled:opacity-50 hover:bg-brand-dark transition"
+              >
+                {placingOrder ? "Placing order…" : "Checkout on WhatsApp →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

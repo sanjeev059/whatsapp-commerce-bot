@@ -1,6 +1,6 @@
 import { FALLBACK_COMBOS, FALLBACK_MENU_ITEMS } from "./fallbackMenu";
 import { FALLBACK_PLANS } from "./fallbackPlans";
-import type { Combo, MenuItem, Subscription, SubscriptionCustomer, SubscriptionPlan } from "./types";
+import type { Combo, MenuItem, Order, OrderCustomer, OrderLine, Subscription, SubscriptionCustomer, SubscriptionPlan } from "./types";
 
 /** Backend base URL — no trailing slash (e.g. https://your-app.onrender.com) */
 export function getGharsipBackendUrl(): string | undefined {
@@ -133,6 +133,7 @@ type CreateSubscriptionBody = {
   dietPreference?: string;
   startDate: string;
   notes?: string;
+  mealTimeSlots?: Record<string, string>;
 };
 
 /** POST /api/subscriptions — public; CORS must allow your Vercel origin. */
@@ -180,4 +181,42 @@ export async function fetchSubscription(subId: string, phone: string): Promise<S
   if (!res.ok) throw new Error(await readError(res, `Lookup failed (${res.status})`));
 
   return (await res.json()) as Subscription;
+}
+
+type CreateOrderBody = {
+  customer: OrderCustomer;
+  items: OrderLine[];
+  mealType: string;
+  timeSlot: string;
+  deliveryDate?: string;
+  notes?: string;
+};
+
+/** POST /api/orders — public; CORS must allow your Vercel origin. */
+export async function createOrder(body: CreateOrderBody): Promise<{ id: string; order: Order }> {
+  const base = getGharsipBackendUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_BACKEND_URL is not set");
+
+  const res = await fetch(`${base}/api/orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) throw new Error(await readError(res, `Order failed (${res.status})`));
+
+  return res.json() as Promise<{ id: string; order: Order }>;
+}
+
+/** GET /api/orders?phone=… */
+export async function fetchOrders(phone: string): Promise<Order[]> {
+  const base = getGharsipBackendUrl();
+  if (!base) return [];
+
+  const q = new URLSearchParams({ phone });
+  const res = await fetch(`${base}/api/orders?${q}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await readError(res, `Lookup failed (${res.status})`));
+
+  const data = (await res.json()) as { orders: Order[] };
+  return data.orders ?? [];
 }

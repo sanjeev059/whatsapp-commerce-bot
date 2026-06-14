@@ -18,6 +18,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from menu import mount_menu, seed_menu
 from meal_plans import mount_meal_plans, seed_plans
 from subscriptions import mount_subscriptions
+from orders import mount_orders
+from delivery import mount_delivery
 from email_otp import mount_email_otp
 from users import mount_users
 from starlette.middleware.cors import CORSMiddleware
@@ -37,6 +39,7 @@ menu_items_coll_name = os.environ.get("MENU_ITEMS_COLLECTION", "gharsip_menu_ite
 combos_coll_name = os.environ.get("COMBOS_COLLECTION", "gharsip_combos")
 plans_coll_name = os.environ.get("PLANS_COLLECTION", "gharsip_plans")
 subscriptions_coll_name = os.environ.get("SUBSCRIPTIONS_COLLECTION", "gharsip_subscriptions")
+orders_coll_name = os.environ.get("ORDERS_COLLECTION", "gharsip_orders")
 
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
@@ -47,6 +50,7 @@ menu_items_coll = db[menu_items_coll_name]
 combos_coll = db[combos_coll_name]
 plans_coll = db[plans_coll_name]
 subscriptions_coll = db[subscriptions_coll_name]
+orders_coll = db[orders_coll_name]
 
 # -------- rate limiting (sliding window, in-memory per instance) --------
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
@@ -91,7 +95,12 @@ async def api_root():
     return {
         "app": os.environ.get("PLATFORM_NAME", "Gharsip Meal Subscriptions API"),
         "version": "3.0",
-        "collections": {"subscriptions": subscriptions_coll_name, "plans": plans_coll_name, "meta": meta_coll_name},
+        "collections": {
+            "subscriptions": subscriptions_coll_name,
+            "plans": plans_coll_name,
+            "orders": orders_coll_name,
+            "meta": meta_coll_name,
+        },
     }
 
 
@@ -104,6 +113,18 @@ mount_subscriptions(
     meta_coll=meta_coll,
     rate_limit=rate_limit,
 )
+mount_orders(
+    api,
+    orders_coll=orders_coll,
+    meta_coll=meta_coll,
+    rate_limit=rate_limit,
+)
+mount_delivery(
+    api,
+    plans_coll=plans_coll,
+    subscriptions_coll=subscriptions_coll,
+    orders_coll=orders_coll,
+)
 
 
 @asynccontextmanager
@@ -111,14 +132,18 @@ async def lifespan(app: FastAPI):
     await subscriptions_coll.create_index("id", unique=True)
     await subscriptions_coll.create_index([("createdAt", -1)])
     await subscriptions_coll.create_index("phoneDigits")
+    await orders_coll.create_index("id", unique=True)
+    await orders_coll.create_index([("createdAt", -1)])
+    await orders_coll.create_index("phoneDigits")
+    await orders_coll.create_index("deliveryDate")
     await menu_items_coll.create_index("id", unique=True)
     await combos_coll.create_index("id", unique=True)
     await plans_coll.create_index("id", unique=True)
     await seed_menu(menu_items_coll, combos_coll)
     await seed_plans(plans_coll)
     logger.info(
-        "Mongo indexes ready — DB=%s subscriptions=%s plans=%s",
-        db_name, subscriptions_coll_name, plans_coll_name,
+        "Mongo indexes ready — DB=%s subscriptions=%s plans=%s orders=%s",
+        db_name, subscriptions_coll_name, plans_coll_name, orders_coll_name,
     )
     yield
     client.close()
@@ -142,11 +167,15 @@ async def admin_stats():
     active_subs = await subscriptions_coll.count_documents({"status": "active"})
     pending_subs = await subscriptions_coll.count_documents({"status": "pending_confirmation"})
     today_subs = await subscriptions_coll.count_documents({"createdAt": {"$gte": today}})
+    total_orders = await orders_coll.count_documents({})
+    today_orders = await orders_coll.count_documents({"deliveryDate": today})
     return {
         "totalSubscriptions": all_subs,
         "activeSubscriptions": active_subs,
         "pendingSubscriptions": pending_subs,
         "todaySubscriptions": today_subs,
+        "totalOrders": total_orders,
+        "todayOrders": today_orders,
     }
 
 

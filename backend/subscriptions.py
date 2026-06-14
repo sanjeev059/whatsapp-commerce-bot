@@ -18,6 +18,8 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
 
+from time_slots import MEAL_TIME_SLOTS
+
 _bearer = HTTPBearer(auto_error=False)
 
 _VALID_STATUSES = frozenset(
@@ -48,6 +50,7 @@ class CustomerIn(BaseModel):
     name: str
     phone: str
     email: str
+    apartment: str
     address1: str
     address2: Optional[str] = ""
     city: str
@@ -63,6 +66,7 @@ class SubscriptionCreateIn(BaseModel):
     dietPreference: Optional[str] = None
     startDate: str
     notes: Optional[str] = None
+    mealTimeSlots: Dict[str, str] = Field(default_factory=dict)
 
 
 class DeliveryLogEntryIn(BaseModel):
@@ -116,6 +120,16 @@ def mount_subscriptions(
         if not plan:
             raise HTTPException(400, "Invalid plan")
 
+        meal_time_slots: Dict[str, str] = {}
+        for meal_type in plan.get("mealTypes", []):
+            slot = payload.mealTimeSlots.get(meal_type)
+            valid_slots = MEAL_TIME_SLOTS.get(meal_type, [])
+            if slot not in valid_slots:
+                raise HTTPException(
+                    400, f"Choose a valid {meal_type} delivery time slot: {', '.join(valid_slots)}"
+                )
+            meal_time_slots[meal_type] = slot
+
         seq_doc = await meta_coll.find_one_and_update(
             {"_id": "subscription_seq"},
             {"$inc": {"v": 1}},
@@ -135,6 +149,7 @@ def mount_subscriptions(
             "phoneDigits": _digits_last10(payload.customer.phone),
             "dietPreference": payload.dietPreference or plan.get("dietType"),
             "startDate": payload.startDate,
+            "mealTimeSlots": meal_time_slots,
             "notes": payload.notes or "",
             "status": "pending_confirmation",
             "paymentStatus": "pending",

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { fetchSubscription, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { MEAL_TYPE_LABELS } from "@/lib/timeSlots";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { Subscription } from "@/lib/types";
 
@@ -102,8 +103,24 @@ function Inner() {
             <span className="font-semibold text-zinc-900">₹{sub.priceMonthly.toLocaleString("en-IN")}</span>
           </p>
           <p>
-            Delivery to: <span className="font-semibold text-zinc-900">{sub.customer.address1}, {sub.customer.city}</span>
+            Delivery to:{" "}
+            <span className="font-semibold text-zinc-900">
+              {sub.customer.apartment ? `${sub.customer.apartment}, ` : ""}
+              {sub.customer.address1}, {sub.customer.city}
+            </span>
           </p>
+          {sub.mealTimeSlots && Object.keys(sub.mealTimeSlots).length > 0 ? (
+            <div>
+              <span>Delivery times:</span>
+              <ul className="mt-1 space-y-0.5">
+                {Object.entries(sub.mealTimeSlots).map(([mealType, slot]) => (
+                  <li key={mealType} className="text-zinc-900">
+                    <span className="font-semibold">{MEAL_TYPE_LABELS[mealType] ?? mealType}:</span> {slot}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <p>
             Status: <span className="font-semibold text-amber-700">Pending confirmation</span>
           </p>

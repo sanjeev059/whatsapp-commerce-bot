@@ -54,6 +54,7 @@ export type SubscriptionCustomer = {
 
 export type DeliveryLogEntry = {
   date: string;
+  mealType?: string;
   status: string;
   note?: string;
 };
@@ -103,7 +104,28 @@ export type Order = {
   timeSlot: string;
   deliveryDate: string;
   notes?: string;
-  status: "placed" | "confirmed" | "delivered" | "cancelled";
+  status: "placed" | "accepted" | "preparing" | "out_for_delivery" | "delivered" | "cancelled";
   paymentStatus: "pending" | "paid" | "failed";
   createdAt: string;
+};
+
+export type KitchenPrepItem = {
+  name: string;
+  kind: string;
+  qty: number;
+};
+
+export type KitchenPrepSubscriptionMeal = {
+  planName: string;
+  qty: number;
+  dietPreference: Record<string, number>;
+};
+
+export type KitchenPrepResponse = {
+  date: string;
+  mealType: string;
+  orderItems: KitchenPrepItem[];
+  orderCount: number;
+  subscriptionMeals: KitchenPrepSubscriptionMeal[];
+  subscriptionCount: number;
 };

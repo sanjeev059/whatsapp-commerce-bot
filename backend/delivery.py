@@ -71,6 +71,10 @@ def mount_delivery(
             if not slot:
                 continue
             customer = sub.get("customer", {})
+            delivered_today = any(
+                e.get("date") == day and e.get("mealType") == mealType and e.get("status") == "delivered"
+                for e in sub.get("deliveryLog", [])
+            )
             g = group_for(customer.get("apartment", "—"), slot)
             g["subscriptions"].append(
                 {
@@ -80,6 +84,7 @@ def mount_delivery(
                     "address": customer.get("address1", ""),
                     "locationUrl": customer.get("locationUrl"),
                     "planName": sub.get("planName", ""),
+                    "deliveredToday": delivered_today,
                 }
             )
 
@@ -96,10 +101,61 @@ def mount_delivery(
                     "address": customer.get("address1", ""),
                     "locationUrl": customer.get("locationUrl"),
                     "items": order.get("items", []),
+                    "status": order.get("status", "placed"),
                 }
             )
 
         result = sorted(groups.values(), key=lambda g: (g["apartment"], g["timeSlot"]))
         return {"date": day, "mealType": mealType, "timeSlots": MEAL_TIME_SLOTS[mealType], "groups": result}
+
+    @delivery.get("/admin/prep", dependencies=[Depends(require_admin)])
+    async def kitchen_prep(
+        mealType: str = Query(..., description="breakfast | lunch | dinner"),
+        date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
+    ):
+        """Aggregate dish/item quantities the kitchen needs to prepare for a
+        meal type + date, from both à la carte orders and active
+        subscriptions, so cooking can start before the delivery rush."""
+        if mealType not in MEAL_TIME_SLOTS:
+            raise HTTPException(400, f"mealType must be one of: {', '.join(MEAL_TIME_SLOTS)}")
+        day = date or date_cls.today().isoformat()
+
+        item_counts: Dict[tuple, Dict[str, Any]] = {}
+        order_count = 0
+        async for order in orders_coll.find(
+            {"mealType": mealType, "deliveryDate": day, "status": {"$ne": "cancelled"}}, {"_id": 0}
+        ):
+            order_count += 1
+            for line in order.get("items", []):
+                key = (line.get("kind"), line.get("id"))
+                entry = item_counts.setdefault(
+                    key, {"name": line.get("name"), "kind": line.get("kind"), "qty": 0}
+                )
+                entry["qty"] += line.get("qty", 0)
+
+        plans = {p["id"]: p async for p in plans_coll.find({}, {"_id": 0})}
+        plan_counts: Dict[str, Dict[str, Any]] = {}
+        sub_count = 0
+        async for sub in subscriptions_coll.find({"status": "active"}, {"_id": 0}):
+            plan = plans.get(sub.get("planId"))
+            if not plan or mealType not in plan.get("mealTypes", []):
+                continue
+            if not (sub.get("mealTimeSlots") or {}).get(mealType):
+                continue
+            sub_count += 1
+            plan_name = sub.get("planName", "Plan")
+            entry = plan_counts.setdefault(plan_name, {"planName": plan_name, "qty": 0, "dietPreference": {}})
+            entry["qty"] += 1
+            diet = sub.get("dietPreference") or "—"
+            entry["dietPreference"][diet] = entry["dietPreference"].get(diet, 0) + 1
+
+        return {
+            "date": day,
+            "mealType": mealType,
+            "orderItems": sorted(item_counts.values(), key=lambda x: -x["qty"]),
+            "orderCount": order_count,
+            "subscriptionMeals": sorted(plan_counts.values(), key=lambda x: -x["qty"]),
+            "subscriptionCount": sub_count,
+        }
 
     api.include_router(delivery)

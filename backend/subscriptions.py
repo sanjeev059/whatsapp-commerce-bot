@@ -74,6 +74,16 @@ class DeliveryLogEntryIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     date: str
+    mealType: Optional[str] = None
+    status: str
+    note: Optional[str] = None
+
+
+class DeliveryLogUpsertIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    mealType: Optional[str] = None
     status: str
     note: Optional[str] = None
 
@@ -219,6 +229,32 @@ def mount_subscriptions(
         res = await subscriptions_coll.update_one({"id": sub_id}, {"$set": patch})
         if res.matched_count == 0:
             raise HTTPException(404, "Subscription not found")
+        return await subscriptions_coll.find_one({"id": sub_id}, {"_id": 0})
+
+    @admin.post("/subscriptions/{sub_id}/delivery-log", dependencies=[Depends(require_admin)])
+    async def upsert_delivery_log(sub_id: str, body: DeliveryLogUpsertIn):
+        """Mark/replace today's delivery status for one meal type — used by the
+        admin's "Today's Deliveries" view so the rider's progress can be ticked
+        off without resending the whole delivery log."""
+        sub = await subscriptions_coll.find_one({"id": sub_id}, {"_id": 0})
+        if not sub:
+            raise HTTPException(404, "Subscription not found")
+
+        entry: Dict[str, Any] = {"date": body.date, "status": body.status}
+        if body.mealType:
+            entry["mealType"] = body.mealType
+        if body.note:
+            entry["note"] = body.note
+
+        existing = sub.get("deliveryLog", [])
+        updated = [
+            e
+            for e in existing
+            if not (e.get("date") == body.date and e.get("mealType") == body.mealType)
+        ]
+        updated.append(entry)
+
+        await subscriptions_coll.update_one({"id": sub_id}, {"$set": {"deliveryLog": updated}})
         return await subscriptions_coll.find_one({"id": sub_id}, {"_id": 0})
 
     api.include_router(subs)

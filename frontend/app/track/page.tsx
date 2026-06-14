@@ -11,14 +11,18 @@ import type { Order, Subscription } from "@/lib/types";
 
 const ORDER_STATUS_LABELS: Record<Order["status"], string> = {
   placed: "Placed",
-  confirmed: "Confirmed",
+  accepted: "Accepted",
+  preparing: "In Preparation",
+  out_for_delivery: "Out for Delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
 };
 
 const ORDER_STATUS_STYLES: Record<Order["status"], string> = {
   placed: "bg-amber-50 text-amber-700",
-  confirmed: "bg-brand-muted text-brand",
+  accepted: "bg-brand-muted text-brand",
+  preparing: "bg-purple-50 text-purple-700",
+  out_for_delivery: "bg-cyan-50 text-cyan-700",
   delivered: "bg-green-50 text-green-700",
   cancelled: "bg-red-50 text-red-600",
 };

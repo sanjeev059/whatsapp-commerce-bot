@@ -24,7 +24,9 @@ from time_slots import MEAL_TIME_SLOTS
 
 _bearer = HTTPBearer(auto_error=False)
 
-_VALID_STATUSES = frozenset({"placed", "confirmed", "delivered", "cancelled"})
+_VALID_STATUSES = frozenset(
+    {"placed", "accepted", "preparing", "out_for_delivery", "delivered", "cancelled"}
+)
 _VALID_PAYMENT_STATUSES = frozenset({"pending", "paid", "failed"})
 
 

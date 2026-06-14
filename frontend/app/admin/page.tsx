@@ -5,7 +5,7 @@ import Link from "next/link";
 import { cycleSuffix } from "@/lib/billing";
 import { isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { MEAL_TYPE_LABELS } from "@/lib/timeSlots";
-import type { DeliveryLogEntry, Order, Subscription } from "@/lib/types";
+import type { DeliveryLogEntry, KitchenPrepResponse, Order, Subscription } from "@/lib/types";
 
 const STATUS_LABELS: Record<Subscription["status"], string> = {
   pending_confirmation: "Pending Confirmation",
@@ -37,17 +37,29 @@ const PAYMENT_COLORS: Record<Subscription["paymentStatus"], string> = {
 
 const ORDER_STATUS_LABELS: Record<Order["status"], string> = {
   placed: "Placed",
-  confirmed: "Confirmed",
+  accepted: "Accepted",
+  preparing: "In Preparation",
+  out_for_delivery: "Out for Delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
 };
 
 const ORDER_STATUS_COLORS: Record<Order["status"], string> = {
   placed: "bg-amber-100 text-amber-700",
-  confirmed: "bg-blue-100 text-blue-700",
+  accepted: "bg-blue-100 text-blue-700",
+  preparing: "bg-purple-100 text-purple-700",
+  out_for_delivery: "bg-cyan-100 text-cyan-700",
   delivered: "bg-green-100 text-green-700",
   cancelled: "bg-red-100 text-red-600",
 };
+
+const ORDER_PIPELINE: Order["status"][] = [
+  "placed",
+  "accepted",
+  "preparing",
+  "out_for_delivery",
+  "delivered",
+];
 
 type DeliveryGroup = {
   apartment: string;
@@ -59,6 +71,7 @@ type DeliveryGroup = {
     address: string;
     locationUrl?: string | null;
     planName: string;
+    deliveredToday?: boolean;
   }[];
   orders: {
     id: string;
@@ -67,6 +80,7 @@ type DeliveryGroup = {
     address: string;
     locationUrl?: string | null;
     items: { name: string; qty: number }[];
+    status?: Order["status"];
   }[];
 };
 
@@ -95,6 +109,7 @@ export default function AdminPage() {
   const [deliveryGroups, setDeliveryGroups] = useState<DeliveryGroupsResponse | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [prep, setPrep] = useState<KitchenPrepResponse | null>(null);
 
   const useBackend = isGharsipApiEnabled();
 
@@ -122,21 +137,76 @@ export default function AdminPage() {
     }
   }, [adminPin]);
 
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
+  const markOrderDelivered = useCallback(
+    async (orderId: string, delivered: boolean) => {
+      setMarkingId(orderId);
+      try {
+        const res = await fetch(`/api/admin/backend-orders/${encodeURIComponent(orderId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "x-admin-pin": adminPin },
+          body: JSON.stringify({ status: delivered ? "delivered" : "out_for_delivery" }),
+        });
+        if (!res.ok) {
+          alert(await res.text());
+          return;
+        }
+        await refreshDeliveries();
+      } finally {
+        setMarkingId(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [adminPin]
+  );
+
+  const markSubscriptionDelivered = useCallback(
+    async (subId: string, delivered: boolean) => {
+      setMarkingId(subId);
+      try {
+        const res = await fetch(`/api/admin/backend-subscriptions/${encodeURIComponent(subId)}/delivery-log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin-pin": adminPin },
+          body: JSON.stringify({
+            date: deliveryDate,
+            mealType: deliveryMealType,
+            status: delivered ? "delivered" : "pending",
+          }),
+        });
+        if (!res.ok) {
+          alert(await res.text());
+          return;
+        }
+        await refreshDeliveries();
+      } finally {
+        setMarkingId(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [adminPin, deliveryDate, deliveryMealType]
+  );
+
   const refreshDeliveries = useCallback(async () => {
     setDeliveryError(null);
     setDeliveryLoading(true);
     try {
       const q = new URLSearchParams({ mealType: deliveryMealType, date: deliveryDate });
-      const res = await fetch(`/api/admin/delivery-groups?${q}`, {
-        headers: { "x-admin-pin": adminPin },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setDeliveryError(await res.text());
+      const [groupsRes, prepRes] = await Promise.all([
+        fetch(`/api/admin/delivery-groups?${q}`, { headers: { "x-admin-pin": adminPin }, cache: "no-store" }),
+        fetch(`/api/admin/delivery-prep?${q}`, { headers: { "x-admin-pin": adminPin }, cache: "no-store" }),
+      ]);
+      if (!groupsRes.ok) {
+        setDeliveryError(await groupsRes.text());
         setDeliveryGroups(null);
-        return;
+      } else {
+        setDeliveryGroups((await groupsRes.json()) as DeliveryGroupsResponse);
       }
-      setDeliveryGroups((await res.json()) as DeliveryGroupsResponse);
+      if (prepRes.ok) {
+        setPrep((await prepRes.json()) as KitchenPrepResponse);
+      } else {
+        setPrep(null);
+      }
     } finally {
       setDeliveryLoading(false);
     }
@@ -168,6 +238,7 @@ export default function AdminPage() {
     setSubs([]);
     setOrders([]);
     setDeliveryGroups(null);
+    setPrep(null);
   };
 
   if (!ok) {
@@ -388,6 +459,81 @@ export default function AdminPage() {
 
         {deliveryError ? <p className="mt-3 text-xs text-red-600">{deliveryError}</p> : null}
 
+        {prep && (prep.orderCount > 0 || prep.subscriptionCount > 0) ? (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-extrabold text-zinc-900">
+              🍳 Kitchen Prep — {MEAL_TYPE_LABELS[deliveryMealType] ?? deliveryMealType} · {deliveryDate}
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-bold uppercase text-zinc-500">
+                  À la carte orders ({prep.orderCount})
+                </p>
+                {prep.orderItems.length === 0 ? (
+                  <p className="mt-1 text-sm text-zinc-400">No items ordered yet.</p>
+                ) : (
+                  <ul className="mt-1 space-y-1 text-sm">
+                    {prep.orderItems.map((it) => (
+                      <li key={`${it.kind}-${it.name}`} className="flex items-center justify-between">
+                        <span className="text-zinc-700">{it.name}</span>
+                        <span className="font-bold text-zinc-900">x{it.qty}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase text-zinc-500">
+                  Subscription meals ({prep.subscriptionCount})
+                </p>
+                {prep.subscriptionMeals.length === 0 ? (
+                  <p className="mt-1 text-sm text-zinc-400">No active subscriptions for this meal.</p>
+                ) : (
+                  <ul className="mt-1 space-y-1.5 text-sm">
+                    {prep.subscriptionMeals.map((m) => (
+                      <li key={m.planName}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-700">{m.planName}</span>
+                          <span className="font-bold text-zinc-900">x{m.qty}</span>
+                        </div>
+                        <p className="text-xs text-zinc-400 capitalize">
+                          {Object.entries(m.dietPreference)
+                            .map(([diet, n]) => `${diet}: ${n}`)
+                            .join(", ")}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {deliveryGroups && deliveryGroups.groups.length > 0
+          ? (() => {
+              const total = deliveryGroups.groups.reduce(
+                (sum, g) => sum + g.subscriptions.length + g.orders.length,
+                0
+              );
+              const done = deliveryGroups.groups.reduce(
+                (sum, g) =>
+                  sum +
+                  g.subscriptions.filter((s) => s.deliveredToday).length +
+                  g.orders.filter((o) => o.status === "delivered").length,
+                0
+              );
+              return (
+                <div className="mt-4 flex items-center justify-between rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <p className="text-sm font-bold text-zinc-700">Delivery progress</p>
+                  <p className={`text-lg font-extrabold ${done === total ? "text-green-600" : "text-brand"}`}>
+                    {done} / {total} delivered
+                  </p>
+                </div>
+              );
+            })()
+          : null}
+
         <div className="mt-4 space-y-4">
           {!deliveryGroups || deliveryGroups.groups.length === 0 ? (
             <p className="rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
@@ -398,6 +544,9 @@ export default function AdminPage() {
           ) : (
             deliveryGroups.groups.map((g) => {
               const count = g.subscriptions.length + g.orders.length;
+              const delivered =
+                g.subscriptions.filter((s) => s.deliveredToday).length +
+                g.orders.filter((o) => o.status === "delivered").length;
               return (
                 <div key={`${g.apartment}-${g.timeSlot}`} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -405,51 +554,103 @@ export default function AdminPage() {
                       <p className="text-base font-extrabold text-zinc-900">{g.apartment}</p>
                       <p className="text-xs font-bold uppercase tracking-wide text-brand">{g.timeSlot}</p>
                     </div>
-                    <span className="rounded-full bg-brand-muted px-3 py-1 text-xs font-bold text-brand">
-                      {count} {count === 1 ? "delivery" : "deliveries"}
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${
+                        delivered === count ? "bg-green-100 text-green-700" : "bg-brand-muted text-brand"
+                      }`}
+                    >
+                      {delivered}/{count} delivered
                     </span>
                   </div>
                   <ul className="mt-3 space-y-2 text-sm">
                     {g.subscriptions.map((s) => (
-                      <li key={`sub-${s.id}`} className="rounded-xl bg-zinc-50 px-3 py-2">
-                        <p className="font-semibold text-zinc-800">
-                          {s.name} <span className="text-xs font-normal text-zinc-400">· {s.phone}</span>
-                        </p>
-                        <p className="text-xs text-zinc-500">{s.address}</p>
-                        <p className="text-xs text-zinc-400">Subscription: {s.planName} ({s.id})</p>
-                        {s.locationUrl && (
-                          <a
-                            href={s.locationUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-bold text-brand hover:underline"
+                      <li
+                        key={`sub-${s.id}`}
+                        className={`rounded-xl px-3 py-2 ${s.deliveredToday ? "bg-green-50" : "bg-zinc-50"}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-zinc-800">
+                              {s.name} <span className="text-xs font-normal text-zinc-400">· {s.phone}</span>
+                            </p>
+                            <p className="text-xs text-zinc-500">{s.address}</p>
+                            <p className="text-xs text-zinc-400">Subscription: {s.planName} ({s.id})</p>
+                            {s.locationUrl && (
+                              <a
+                                href={s.locationUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-bold text-brand hover:underline"
+                              >
+                                📍 View location
+                              </a>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={markingId === s.id}
+                            onClick={() => void markSubscriptionDelivered(s.id, !s.deliveredToday)}
+                            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+                              s.deliveredToday
+                                ? "bg-green-100 text-green-700"
+                                : "border border-zinc-300 text-zinc-600 hover:border-brand hover:text-brand"
+                            }`}
                           >
-                            📍 View location
-                          </a>
-                        )}
+                            {s.deliveredToday ? "✓ Delivered" : "Mark delivered"}
+                          </button>
+                        </div>
                       </li>
                     ))}
-                    {g.orders.map((o) => (
-                      <li key={`order-${o.id}`} className="rounded-xl bg-zinc-50 px-3 py-2">
-                        <p className="font-semibold text-zinc-800">
-                          {o.name} <span className="text-xs font-normal text-zinc-400">· {o.phone}</span>
-                        </p>
-                        <p className="text-xs text-zinc-500">{o.address}</p>
-                        <p className="text-xs text-zinc-400">
-                          Order {o.id}: {o.items.map((it) => `${it.name} x${it.qty}`).join(", ")}
-                        </p>
-                        {o.locationUrl && (
-                          <a
-                            href={o.locationUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-bold text-brand hover:underline"
-                          >
-                            📍 View location
-                          </a>
-                        )}
-                      </li>
-                    ))}
+                    {g.orders.map((o) => {
+                      const isDelivered = o.status === "delivered";
+                      return (
+                        <li
+                          key={`order-${o.id}`}
+                          className={`rounded-xl px-3 py-2 ${isDelivered ? "bg-green-50" : "bg-zinc-50"}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-zinc-800">
+                                {o.name} <span className="text-xs font-normal text-zinc-400">· {o.phone}</span>
+                              </p>
+                              <p className="text-xs text-zinc-500">{o.address}</p>
+                              <p className="text-xs text-zinc-400">
+                                Order {o.id}: {o.items.map((it) => `${it.name} x${it.qty}`).join(", ")}
+                              </p>
+                              {o.status && (
+                                <span
+                                  className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${ORDER_STATUS_COLORS[o.status]}`}
+                                >
+                                  {ORDER_STATUS_LABELS[o.status]}
+                                </span>
+                              )}
+                              {o.locationUrl && (
+                                <a
+                                  href={o.locationUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-xs font-bold text-brand hover:underline"
+                                >
+                                  📍 View location
+                                </a>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              disabled={markingId === o.id}
+                              onClick={() => void markOrderDelivered(o.id, !isDelivered)}
+                              className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+                                isDelivered
+                                  ? "bg-green-100 text-green-700"
+                                  : "border border-zinc-300 text-zinc-600 hover:border-brand hover:text-brand"
+                              }`}
+                            >
+                              {isDelivered ? "✓ Delivered" : "Mark delivered"}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               );
@@ -713,6 +914,24 @@ function OrderAdminRow({
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ORDER_STATUS_COLORS[status]}`}>
             {ORDER_STATUS_LABELS[status]}
           </span>
+          {(() => {
+            const idx = ORDER_PIPELINE.indexOf(status);
+            const next = idx >= 0 && idx < ORDER_PIPELINE.length - 1 ? ORDER_PIPELINE[idx + 1] : null;
+            if (!next) return null;
+            return (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setStatus(next);
+                  void save({ status: next });
+                }}
+                className="ml-2 rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-bold text-zinc-600 hover:border-brand hover:text-brand disabled:opacity-50"
+              >
+                {ORDER_STATUS_LABELS[next]} →
+              </button>
+            );
+          })()}
         </td>
         <td className="p-3">
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${PAYMENT_COLORS[paymentStatus]}`}>

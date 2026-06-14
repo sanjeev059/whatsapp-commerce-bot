@@ -96,7 +96,7 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
     }
   };
 
-  if (!isGharsipApiEnabled() || !plan) {
+  if (!plan) {
     return (
       <>
         <section className="mx-auto max-w-xl px-4 py-20 text-center sm:px-6">
@@ -113,6 +113,52 @@ export function SubscribeForm({ planId, plan }: { planId: string; plan: Subscrip
             Order on WhatsApp →
           </a>
         </section>
+        <Footer />
+      </>
+    );
+  }
+
+  if (!isGharsipApiEnabled()) {
+    return (
+      <>
+        <section className="bg-gradient-to-br from-brand-dark via-brand to-brand-light py-12 text-white">
+          <div className="mx-auto max-w-xl px-4 text-center sm:px-6">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-green-100">Subscribe</p>
+            <h1 className="mt-2 text-3xl font-extrabold">{plan.name}</h1>
+            <p className="mt-2 text-sm text-green-100">{plan.description}</p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {plan.mealTypes.map((m) => (
+                <span key={m} className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold">
+                  {MEAL_LABELS[m] ?? m}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4 text-2xl font-extrabold">
+              ₹{plan.priceMonthly.toLocaleString("en-IN")}
+              <span className="text-sm font-semibold text-green-100"> /month</span>
+            </p>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-xl px-4 py-12 text-center sm:px-6">
+          <p className="text-sm text-zinc-500">
+            Message us on WhatsApp with your details and we&apos;ll set up this subscription for you.
+          </p>
+          <a
+            href={buildWhatsAppLink(
+              `Hi Gharsip, I'd like to subscribe to the *${plan.name}* plan (₹${plan.priceMonthly.toLocaleString("en-IN")}/month).`
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-white shadow-lg hover:bg-brand-dark transition"
+          >
+            Subscribe via WhatsApp →
+          </a>
+          <Link href="/plans" className="mt-4 block text-center text-xs text-brand underline underline-offset-2">
+            ← Back to plans
+          </Link>
+        </section>
+
         <Footer />
       </>
     );

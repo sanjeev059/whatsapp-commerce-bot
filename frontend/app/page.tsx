@@ -18,9 +18,10 @@ const stats = [
 ];
 
 export default async function HomePage() {
-  const [combos, plans] = isGharsipApiEnabled()
-    ? await Promise.all([getCombos(), getPlans()])
-    : [[], []];
+  const [combos, plans] = await Promise.all([
+    isGharsipApiEnabled() ? getCombos() : Promise.resolve([]),
+    getPlans(),
+  ]);
 
   const featuredCombos = combos.slice(0, 3);
   const featuredPlans = plans.slice(0, 3);

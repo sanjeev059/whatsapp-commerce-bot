@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getPlan, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { getPlan } from "@/lib/gharsipApi";
 import { SubscribeForm } from "./SubscribeForm";
 
 export default async function SubscribePage({
@@ -8,9 +8,9 @@ export default async function SubscribePage({
   params: Promise<{ planId: string }>;
 }) {
   const { planId } = await params;
-  const plan = isGharsipApiEnabled() ? await getPlan(planId) : null;
+  const plan = await getPlan(planId);
 
-  if (isGharsipApiEnabled() && !plan) notFound();
+  if (!plan) notFound();
 
   return <SubscribeForm planId={planId} plan={plan} />;
 }

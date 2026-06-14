@@ -1,3 +1,4 @@
+import { FALLBACK_PLANS } from "./fallbackPlans";
 import type { Combo, MenuItem, Subscription, SubscriptionCustomer, SubscriptionPlan } from "./types";
 
 /** Backend base URL — no trailing slash (e.g. https://your-app.onrender.com) */
@@ -52,28 +53,47 @@ export async function getCombos(mealType?: string, dietType?: string): Promise<C
   return data.combos ?? [];
 }
 
-/** GET /api/plans */
+/**
+ * GET /api/plans — falls back to the static plan list (FALLBACK_PLANS) if the
+ * backend URL isn't configured, or the API call fails, so the Plans page
+ * always has subscription options to show.
+ */
 export async function getPlans(): Promise<SubscriptionPlan[]> {
   const base = getGharsipBackendUrl();
-  if (!base) return [];
+  if (!base) return FALLBACK_PLANS;
 
-  const res = await fetch(`${base}/api/plans`, { cache: "no-store" });
-  if (!res.ok) throw new Error(await readError(res, `Failed to load plans (${res.status})`));
+  try {
+    const res = await fetch(`${base}/api/plans`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, `Failed to load plans (${res.status})`));
 
-  const data = (await res.json()) as { plans: SubscriptionPlan[] };
-  return data.plans ?? [];
+    const data = (await res.json()) as { plans: SubscriptionPlan[] };
+    return data.plans?.length ? data.plans : FALLBACK_PLANS;
+  } catch (e) {
+    console.error("getPlans: falling back to static plan list —", e);
+    return FALLBACK_PLANS;
+  }
 }
 
-/** GET /api/plans/{id} */
+/**
+ * GET /api/plans/{id} — falls back to FALLBACK_PLANS if the backend is
+ * unreachable, so subscription pages keep working while the API is down.
+ */
 export async function getPlan(planId: string): Promise<SubscriptionPlan | null> {
+  const fallback = () => FALLBACK_PLANS.find((p) => p.id === planId) ?? null;
+
   const base = getGharsipBackendUrl();
-  if (!base) return null;
+  if (!base) return fallback();
 
-  const res = await fetch(`${base}/api/plans/${encodeURIComponent(planId)}`, { cache: "no-store" });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(await readError(res, `Failed to load plan (${res.status})`));
+  try {
+    const res = await fetch(`${base}/api/plans/${encodeURIComponent(planId)}`, { cache: "no-store" });
+    if (res.status === 404) return fallback();
+    if (!res.ok) throw new Error(await readError(res, `Failed to load plan (${res.status})`));
 
-  return (await res.json()) as SubscriptionPlan;
+    return (await res.json()) as SubscriptionPlan;
+  } catch (e) {
+    console.error("getPlan: falling back to static plan list —", e);
+    return fallback();
+  }
 }
 
 type CreateSubscriptionBody = {

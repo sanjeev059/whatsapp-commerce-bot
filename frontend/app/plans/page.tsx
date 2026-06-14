@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Footer } from "@/components/Footer";
-import { getPlans, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { getPlans } from "@/lib/gharsipApi";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const MEAL_LABELS: Record<string, string> = {
@@ -10,7 +10,7 @@ const MEAL_LABELS: Record<string, string> = {
 };
 
 export default async function PlansPage() {
-  const plans = isGharsipApiEnabled() ? await getPlans() : [];
+  const plans = await getPlans();
 
   return (
     <>

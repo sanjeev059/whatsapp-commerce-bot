@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
+import { UpiPayment } from "@/components/UpiPayment";
 import { createOrder, getCombos, getMenuItems, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { getCurrentLocationUrl } from "@/lib/geolocation";
 import { MEAL_TIME_SLOTS, MEAL_TYPE_LABELS } from "@/lib/timeSlots";
@@ -125,6 +126,7 @@ function MenuInner() {
   const [locationUrl, setLocationUrl] = useState("");
   const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [locationError, setLocationError] = useState("");
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,6 +227,10 @@ function MenuInner() {
       setCheckoutError("Please choose a delivery time slot");
       return;
     }
+    if (!paymentConfirmed) {
+      setCheckoutError("Please complete the UPI payment and tick the confirmation box");
+      return;
+    }
 
     setCheckoutError("");
     setPlacingOrder(true);
@@ -257,6 +263,7 @@ function MenuInner() {
       setCart({});
       setLocationUrl("");
       setLocationStatus("idle");
+      setPaymentConfirmed(false);
     } catch (e) {
       setCheckoutError(e instanceof Error ? e.message : "Something went wrong, please try again");
     } finally {
@@ -645,6 +652,13 @@ function MenuInner() {
                 )}
               </div>
 
+              <UpiPayment
+                amount={cartTotal}
+                note={`Gharsip order - ${checkoutForm.name || "customer"}`}
+                confirmed={paymentConfirmed}
+                onConfirmedChange={setPaymentConfirmed}
+              />
+
               {checkoutError && (
                 <p className="rounded-xl bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600">
                   {checkoutError}
@@ -654,7 +668,7 @@ function MenuInner() {
               <button
                 type="button"
                 onClick={() => void placeOrder()}
-                disabled={placingOrder}
+                disabled={placingOrder || !paymentConfirmed}
                 className="w-full rounded-xl bg-brand py-3 text-sm font-extrabold text-white disabled:opacity-50 hover:bg-brand-dark transition"
               >
                 {placingOrder ? "Placing order…" : "Checkout on WhatsApp →"}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Footer } from "@/components/Footer";
+import { UpiPayment } from "@/components/UpiPayment";
 import { cycleSuffix } from "@/lib/billing";
 import { createSubscription, isGharsipApiEnabled } from "@/lib/gharsipApi";
 import { getCurrentLocationUrl } from "@/lib/geolocation";
@@ -61,6 +62,7 @@ export function SubscribeForm({
   const [locationUrl, setLocationUrl] = useState("");
   const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [locationError, setLocationError] = useState("");
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const setSlot = (mealType: string, slot: string) =>
@@ -104,6 +106,10 @@ export function SubscribeForm({
     }
     if (plan && plan.mealTypes.some((m) => !mealTimeSlots[m])) {
       setError("Please choose a delivery time slot for each meal");
+      return;
+    }
+    if (!paymentConfirmed) {
+      setError("Please complete the UPI payment and tick the confirmation box");
       return;
     }
 
@@ -404,19 +410,26 @@ export function SubscribeForm({
               />
             </div>
 
+            <UpiPayment
+              amount={plan.priceMonthly}
+              note={`Gharsip ${plan.name} - ${form.name || "customer"}`}
+              confirmed={paymentConfirmed}
+              onConfirmedChange={setPaymentConfirmed}
+            />
+
             {error && (
               <p className="rounded-xl bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600">{error}</p>
             )}
 
             <button
               onClick={() => void submit()}
-              disabled={loading}
+              disabled={loading || !paymentConfirmed}
               className="w-full rounded-xl bg-brand py-3.5 text-sm font-bold text-white disabled:opacity-50 hover:bg-brand-dark transition"
             >
               {loading ? "Submitting…" : "Confirm Subscription"}
             </button>
             <p className="text-center text-xs text-zinc-400">
-              Payment is collected on delivery / via UPI — our team will confirm with you on WhatsApp.
+              Our team will verify your UPI payment and confirm your subscription on WhatsApp.
             </p>
             <Link href="/plans" className="block text-center text-xs text-brand underline underline-offset-2">
               ← Back to plans

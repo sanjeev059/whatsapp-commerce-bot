@@ -302,10 +302,11 @@ function MenuInner() {
       {/* Combos */}
       <section className="mx-auto max-w-5xl px-4 py-14 sm:px-6">
         <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Combo meals</p>
-          <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Pick a Combo for Today</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand">Box meals</p>
+          <h2 className="mt-2 text-3xl font-extrabold text-zinc-900">Pick Your Gharsip Box</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Each combo lists energy, protein and carbs so you can plan your day.
+            One box, fully packed — rice/roti, curry &amp; sides together, just like your
+            favourite Box8 / NH1 meal boxes. Energy, protein and carbs listed so you can plan your day.
           </p>
         </div>
 
@@ -374,11 +375,26 @@ function MenuInner() {
                     {combo.dietType === "nonveg" ? "Non-Veg" : "Veg"}
                   </span>
                 </div>
-                <ul className="mt-2 flex-1 space-y-1 text-sm text-zinc-600">
-                  {combo.items.map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
-                </ul>
+                <span className="mt-1.5 inline-flex w-fit items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-700">
+                  🍱 Gharsip Box
+                </span>
+                <div className="mt-2.5 flex-1 rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50 p-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {combo.items.map((item, i) => {
+                      const isLastOdd = i === combo.items.length - 1 && combo.items.length % 2 === 1;
+                      return (
+                        <div
+                          key={item}
+                          className={`flex items-center justify-center rounded-lg border border-zinc-100 bg-white px-2 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 ${
+                            isLastOdd ? "col-span-2" : ""
+                          }`}
+                        >
+                          {item}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold">
                   <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600">
                     {combo.energyKcal} kcal

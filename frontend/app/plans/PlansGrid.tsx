@@ -16,9 +16,10 @@ const CYCLE_TABS: { id: "monthly" | "weekly"; label: string }[] = [
   { id: "weekly", label: "Weekly" },
 ];
 
-export function PlansGrid({ plans }: { plans: SubscriptionPlan[] }) {
+export function PlansGrid({ plans, apartment }: { plans: SubscriptionPlan[]; apartment?: string }) {
   const [cycle, setCycle] = useState<"monthly" | "weekly">("monthly");
   const visiblePlans = plans.filter((p) => (p.billingCycle ?? "monthly") === cycle);
+  const subscribeQuery = apartment?.trim() ? `?apartment=${encodeURIComponent(apartment.trim())}` : "";
 
   return (
     <>
@@ -94,7 +95,7 @@ export function PlansGrid({ plans }: { plans: SubscriptionPlan[] }) {
             </p>
 
             <Link
-              href={`/subscribe/${plan.id}`}
+              href={`/subscribe/${plan.id}${subscribeQuery}`}
               className="mt-4 block rounded-xl bg-brand px-4 py-3 text-center text-sm font-bold text-white hover:bg-brand-dark transition"
             >
               Subscribe Now

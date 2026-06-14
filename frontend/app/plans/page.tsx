@@ -3,8 +3,13 @@ import { getPlans } from "@/lib/gharsipApi";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import { PlansGrid } from "./PlansGrid";
 
-export default async function PlansPage() {
+export default async function PlansPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ apartment?: string }>;
+}) {
   const plans = await getPlans();
+  const { apartment } = await searchParams;
 
   return (
     <>
@@ -35,7 +40,7 @@ export default async function PlansPage() {
           </p>
         </div>
 
-        <PlansGrid plans={plans} />
+        <PlansGrid plans={plans} apartment={apartment} />
 
         <div className="mt-10 text-center">
           <p className="text-sm text-zinc-500">Not sure which plan fits you?</p>

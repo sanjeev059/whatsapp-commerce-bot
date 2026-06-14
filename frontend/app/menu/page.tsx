@@ -99,6 +99,7 @@ function QtyStepper({
 function MenuInner() {
   const sp = useSearchParams();
   const initialMeal = sp.get("meal");
+  const initialApartment = sp.get("apartment")?.trim() ?? "";
   const [combos, setCombos] = useState<Combo[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [mealType, setMealType] = useState<(typeof MEAL_TABS)[number]["id"]>(
@@ -112,7 +113,7 @@ function MenuInner() {
   const [checkoutForm, setCheckoutForm] = useState({
     name: "",
     phone: "",
-    apartment: "",
+    apartment: initialApartment,
     address1: "",
     city: "",
   });

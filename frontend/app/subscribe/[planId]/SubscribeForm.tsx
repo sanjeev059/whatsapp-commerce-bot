@@ -40,9 +40,20 @@ const INITIAL_FORM: FormState = {
   notes: "",
 };
 
-export function SubscribeForm({ planId, plan }: { planId: string; plan: SubscriptionPlan | null }) {
+export function SubscribeForm({
+  planId,
+  plan,
+  apartment,
+}: {
+  planId: string;
+  plan: SubscriptionPlan | null;
+  apartment?: string;
+}) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [form, setForm] = useState<FormState>(() => ({
+    ...INITIAL_FORM,
+    apartment: apartment?.trim() || "",
+  }));
   const [mealTimeSlots, setMealTimeSlots] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

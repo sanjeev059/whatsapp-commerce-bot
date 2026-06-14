@@ -52,8 +52,22 @@ const ORDER_STATUS_COLORS: Record<Order["status"], string> = {
 type DeliveryGroup = {
   apartment: string;
   timeSlot: string;
-  subscriptions: { id: string; name: string; phone: string; address: string; planName: string }[];
-  orders: { id: string; name: string; phone: string; address: string; items: { name: string; qty: number }[] }[];
+  subscriptions: {
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    locationUrl?: string | null;
+    planName: string;
+  }[];
+  orders: {
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    locationUrl?: string | null;
+    items: { name: string; qty: number }[];
+  }[];
 };
 
 type DeliveryGroupsResponse = {
@@ -403,6 +417,16 @@ export default function AdminPage() {
                         </p>
                         <p className="text-xs text-zinc-500">{s.address}</p>
                         <p className="text-xs text-zinc-400">Subscription: {s.planName} ({s.id})</p>
+                        {s.locationUrl && (
+                          <a
+                            href={s.locationUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-bold text-brand hover:underline"
+                          >
+                            📍 View location
+                          </a>
+                        )}
                       </li>
                     ))}
                     {g.orders.map((o) => (
@@ -414,6 +438,16 @@ export default function AdminPage() {
                         <p className="text-xs text-zinc-400">
                           Order {o.id}: {o.items.map((it) => `${it.name} x${it.qty}`).join(", ")}
                         </p>
+                        {o.locationUrl && (
+                          <a
+                            href={o.locationUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-bold text-brand hover:underline"
+                          >
+                            📍 View location
+                          </a>
+                        )}
                       </li>
                     ))}
                   </ul>

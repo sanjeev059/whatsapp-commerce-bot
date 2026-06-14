@@ -109,6 +109,18 @@ function Inner() {
               {sub.customer.address1}, {sub.customer.city}
             </span>
           </p>
+          {sub.customer.locationUrl ? (
+            <p>
+              <a
+                href={sub.customer.locationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-brand hover:underline"
+              >
+                📍 View shared location
+              </a>
+            </p>
+          ) : null}
           {sub.mealTimeSlots && Object.keys(sub.mealTimeSlots).length > 0 ? (
             <div>
               <span>Delivery times:</span>

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { cycleSuffix } from "@/lib/billing";
 import { createSubscription, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { getCurrentLocationUrl } from "@/lib/geolocation";
 import { MEAL_TIME_SLOTS, MEAL_TYPE_LABELS } from "@/lib/timeSlots";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { SubscriptionPlan } from "@/lib/types";
@@ -57,10 +58,26 @@ export function SubscribeForm({
   const [mealTimeSlots, setMealTimeSlots] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [locationUrl, setLocationUrl] = useState("");
+  const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [locationError, setLocationError] = useState("");
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const setSlot = (mealType: string, slot: string) =>
     setMealTimeSlots((s) => ({ ...s, [mealType]: slot }));
+
+  const shareLocation = async () => {
+    setLocationStatus("loading");
+    setLocationError("");
+    try {
+      const url = await getCurrentLocationUrl();
+      setLocationUrl(url);
+      setLocationStatus("done");
+    } catch (e) {
+      setLocationError(e instanceof Error ? e.message : "Couldn't get your location.");
+      setLocationStatus("error");
+    }
+  };
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -105,6 +122,7 @@ export function SubscribeForm({
           city: form.city,
           state: form.state,
           pincode: form.pincode,
+          locationUrl: locationUrl || undefined,
         },
         startDate: form.startDate,
         notes: form.notes || undefined,
@@ -350,6 +368,29 @@ export function SubscribeForm({
                 value={form.startDate}
                 onChange={(e) => set("startDate", e.target.value)}
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-500 mb-1.5">
+                Share your location (optional)
+              </label>
+              {locationStatus === "done" ? (
+                <p className="rounded-xl bg-brand-muted px-4 py-3 text-xs font-semibold text-brand">
+                  📍 Location shared — this helps our delivery partner find your building faster.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void shareLocation()}
+                  disabled={locationStatus === "loading"}
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-bold text-zinc-700 transition hover:border-brand hover:text-brand disabled:opacity-50"
+                >
+                  {locationStatus === "loading" ? "Getting location…" : "📍 Share my current location"}
+                </button>
+              )}
+              {locationStatus === "error" && (
+                <p className="mt-1.5 text-xs text-amber-700">{locationError}</p>
+              )}
             </div>
 
             <div>

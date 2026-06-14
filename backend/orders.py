@@ -45,6 +45,7 @@ class OrderCustomerIn(BaseModel):
     apartment: str
     address1: str
     city: str
+    locationUrl: Optional[str] = None
 
 
 class OrderLineIn(BaseModel):

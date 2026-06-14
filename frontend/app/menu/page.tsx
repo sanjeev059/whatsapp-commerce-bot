@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { createOrder, getCombos, getMenuItems, isGharsipApiEnabled } from "@/lib/gharsipApi";
+import { getCurrentLocationUrl } from "@/lib/geolocation";
 import { MEAL_TIME_SLOTS, MEAL_TYPE_LABELS } from "@/lib/timeSlots";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import type { Combo, MenuItem } from "@/lib/types";
@@ -121,6 +122,9 @@ function MenuInner() {
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [locationUrl, setLocationUrl] = useState("");
+  const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +195,19 @@ function MenuInner() {
   const setCheckoutField = (k: keyof typeof checkoutForm, v: string) =>
     setCheckoutForm((f) => ({ ...f, [k]: v }));
 
+  const shareLocation = async () => {
+    setLocationStatus("loading");
+    setLocationError("");
+    try {
+      const url = await getCurrentLocationUrl();
+      setLocationUrl(url);
+      setLocationStatus("done");
+    } catch (e) {
+      setLocationError(e instanceof Error ? e.message : "Couldn't get your location.");
+      setLocationStatus("error");
+    }
+  };
+
   const placeOrder = async () => {
     if (!checkoutForm.name.trim() || !checkoutForm.phone.trim()) {
       setCheckoutError("Please enter your name and phone number");
@@ -212,10 +229,11 @@ function MenuInner() {
     setCheckoutError("");
     setPlacingOrder(true);
     try {
+      const customer = { ...checkoutForm, locationUrl: locationUrl || undefined };
       let orderId: string | undefined;
       if (isGharsipApiEnabled()) {
         const res = await createOrder({
-          customer: checkoutForm,
+          customer,
           items: cartLines,
           mealType: deliveryMealType,
           timeSlot: deliveryTimeSlot,
@@ -230,12 +248,15 @@ function MenuInner() {
         `Apartment/Society: ${checkoutForm.apartment}`,
         `Address: ${checkoutForm.address1}, ${checkoutForm.city}`,
         `${MEAL_TYPE_LABELS[deliveryMealType]} delivery slot: ${deliveryTimeSlot}`,
+        locationUrl ? `Location: ${locationUrl}` : null,
       ].filter((l): l is string => Boolean(l));
 
       const message = `${orderMessage}\n\n*Delivery details:*\n${detailLines.join("\n")}`;
       window.open(buildWhatsAppLink(message), "_blank", "noopener,noreferrer");
       setCheckoutOpen(false);
       setCart({});
+      setLocationUrl("");
+      setLocationStatus("idle");
     } catch (e) {
       setCheckoutError(e instanceof Error ? e.message : "Something went wrong, please try again");
     } finally {
@@ -583,6 +604,29 @@ function MenuInner() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">
+                  Share your location (optional)
+                </label>
+                {locationStatus === "done" ? (
+                  <p className="rounded-xl bg-brand-muted px-4 py-2.5 text-xs font-semibold text-brand">
+                    📍 Location shared — this helps our delivery partner find you faster.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void shareLocation()}
+                    disabled={locationStatus === "loading"}
+                    className="w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-bold text-zinc-700 transition hover:border-brand hover:text-brand disabled:opacity-50"
+                  >
+                    {locationStatus === "loading" ? "Getting location…" : "📍 Share my current location"}
+                  </button>
+                )}
+                {locationStatus === "error" && (
+                  <p className="mt-1.5 text-xs text-amber-700">{locationError}</p>
+                )}
               </div>
 
               {checkoutError && (

@@ -49,6 +49,7 @@ export type SubscriptionCustomer = {
   city: string;
   state: string;
   pincode: string;
+  locationUrl?: string;
 };
 
 export type DeliveryLogEntry = {
@@ -81,6 +82,7 @@ export type OrderCustomer = {
   apartment: string;
   address1: string;
   city: string;
+  locationUrl?: string;
 };
 
 export type OrderLine = {

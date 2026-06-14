@@ -78,6 +78,7 @@ def mount_delivery(
                     "name": customer.get("name", ""),
                     "phone": customer.get("phone", ""),
                     "address": customer.get("address1", ""),
+                    "locationUrl": customer.get("locationUrl"),
                     "planName": sub.get("planName", ""),
                 }
             )
@@ -93,6 +94,7 @@ def mount_delivery(
                     "name": customer.get("name", ""),
                     "phone": customer.get("phone", ""),
                     "address": customer.get("address1", ""),
+                    "locationUrl": customer.get("locationUrl"),
                     "items": order.get("items", []),
                 }
             )

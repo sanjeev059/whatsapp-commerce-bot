@@ -56,6 +56,7 @@ class CustomerIn(BaseModel):
     city: str
     state: str
     pincode: str
+    locationUrl: Optional[str] = None
 
 
 class SubscriptionCreateIn(BaseModel):
